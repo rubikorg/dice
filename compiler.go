@@ -285,9 +285,9 @@ func getSchemaList(diceFiles []string) ([]Schema, error) {
 		} else if len(s.Columns) == 0 {
 			msg := "dice: column list is empty for %s. Add [columns] object. not generating model\n"
 			fmt.Printf(msg, p)
+		} else {
+			schemas = append(schemas, s)
 		}
-
-		schemas = append(schemas, s)
 	}
 
 	return schemas, nil
