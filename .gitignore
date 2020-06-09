@@ -1,3 +1,6 @@
 # test schemas and models
 schemas/
 models/
+
+# test file for testing queries
+./test/main.go
