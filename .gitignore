@@ -1,6 +1,3 @@
 # test schemas and models
 schemas/
 models/
-
-# main runner
-main.go
