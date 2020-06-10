@@ -12,7 +12,7 @@ import (
 )
 
 // Connect to postgresql db using the connection uri
-func Connect(uri dice.ConnectUri) (*sql.DB, error) {
+func Connect(uri dice.ConnectURI) (*sql.DB, error) {
 	var connStr = ""
 	connStr += "host=" + uri.Host
 	connStr += fmt.Sprintf(" port=%d", uri.Port)
