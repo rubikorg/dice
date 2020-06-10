@@ -13,6 +13,7 @@ import (
 func setup() {
 	spath := filepath.Join(".", "schemas")
 	mpath := filepath.Join(".", "models")
+	tpath := filepath.Join(".", "test")
 	cfgp := filepath.Join(spath, "config.toml")
 	dummysp := filepath.Join(spath, "posts.dice")
 	dummySchema := `
@@ -29,10 +30,18 @@ liked_count = { type = "int", ignore = true }
 `
 	os.MkdirAll(spath, 0755)
 	os.MkdirAll(mpath, 0755)
-	var buf bytes.Buffer
-	toml.NewEncoder(&buf).Encode(Options{})
-	ioutil.WriteFile(cfgp, buf.Bytes(), 0755)
-	ioutil.WriteFile(dummysp, []byte(dummySchema), 0755)
+	os.MkdirAll(tpath, 0755)
+
+	if cf, _ := os.Stat(cfgp); cf == nil {
+		var buf bytes.Buffer
+		toml.NewEncoder(&buf).Encode(Options{})
+		ioutil.WriteFile(cfgp, buf.Bytes(), 0755)
+
+	}
+
+	if dsf, _ := os.Stat(dummysp); dsf == nil {
+		ioutil.WriteFile(dummysp, []byte(dummySchema), 0755)
+	}
 }
 
 func init() {
