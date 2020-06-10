@@ -1,14 +1,43 @@
 package dice
 
 import (
+	"bytes"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
+
+func setup() {
+	spath := filepath.Join(".", "schemas")
+	mpath := filepath.Join(".", "models")
+	cfgp := filepath.Join(spath, "config.toml")
+	dummysp := filepath.Join(spath, "posts.dice")
+	dummySchema := `
+table = "posts"
+model = "Post"
+create_dates = true
+
+[columns]
+id = { type = "int", table_pk = true }
+title = { type = "string" }
+comments = { type = "slice", model = "Comment", using = "comment_id" }
+comment_id = { type = "int", constraint = "comments(id)" }
+liked_count = { type = "int", ignore = true }
+`
+	os.MkdirAll(spath, 0755)
+	os.MkdirAll(mpath, 0755)
+	var buf bytes.Buffer
+	toml.NewEncoder(&buf).Encode(Options{})
+	ioutil.WriteFile(cfgp, buf.Bytes(), 0755)
+	ioutil.WriteFile(dummysp, []byte(dummySchema), 0755)
+}
 
 func init() {
 	setLogger(false)
+	setup()
 }
 
 func TestGetDiceFiles(t *testing.T) {
