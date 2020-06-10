@@ -3,4 +3,4 @@ schemas/
 models/
 
 # test file for testing queries
-./test/main.go
+test/
