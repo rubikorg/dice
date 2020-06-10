@@ -23,7 +23,7 @@ type compilerCache struct {
 // from `source` to dice.Model inside the `destination` path
 // the model generated can depend upon the given engine.
 // if all the compile logs needs to be displayed you can pass
-// dice.Options{}.Verbose = true
+// dice.Options{Verbose: true}
 func Compile(source, destination string, engine DriverIdent, opts ...Options) error {
 	if len(opts) > 0 && opts[0].Verbose {
 		setLogger(true)
@@ -68,7 +68,8 @@ func Compile(source, destination string, engine DriverIdent, opts ...Options) er
 
 	log.Sugar().Debugf("Primary keys are: %#v", pk)
 	log.Sugar().Debugf("Compiler cache generated: %#v", cache)
-	p := encodeCompilerCache(cache)
+	cpath := getCachePath()
+	p := encodeCompilerCache(cpath, cache)
 
 	if p != "" {
 		log.Sugar().Debugf("Compiler cache written to %s", p)
@@ -89,6 +90,10 @@ func Compile(source, destination string, engine DriverIdent, opts ...Options) er
 	return nil
 }
 
+// CompileCache only compiles the schama cache and saves it to
+// the user home directory. It does not perform checks or any
+// other strict checking and should be used only if migration
+// didn't generate proper cache.
 func CompileCache(source string, opts ...Options) error {
 	if len(opts) > 0 && opts[0].Verbose {
 		setLogger(true)
@@ -111,7 +116,7 @@ func CompileCache(source string, opts ...Options) error {
 	}
 
 	if len(diceFiles) == 0 {
-		return fmt.Errorf("no dice files found under %s/.", source)
+		return fmt.Errorf("no dice files found under %s/", source)
 	}
 
 	schemas, err := getSchemaList(diceFiles)
@@ -129,7 +134,8 @@ func CompileCache(source string, opts ...Options) error {
 		cache.ColEquivalents[s.Table] = ceq
 	}
 
-	p := encodeCompilerCache(cache)
+	cpath := getCachePath()
+	p := encodeCompilerCache(cpath, cache)
 	if p == "" {
 		return errors.New("an error occured while writing dice cache file")
 	}
@@ -189,35 +195,31 @@ func createStructName(column string) string {
 	if !strings.Contains(column, "_") {
 		c0 := column[0]
 		return strings.ToUpper(string(c0)) + column[1:]
-	} else {
-		fin := ""
-		foundUndie := false
-		for i := 0; i < len(column); i++ {
-			if i == 0 {
-				fin += strings.ToUpper(string(column[i]))
-				continue
-			}
-
-			if column[i] == '_' {
-				foundUndie = true
-				continue
-			}
-
-			if foundUndie {
-				fin += strings.ToUpper(string(column[i]))
-				foundUndie = false
-			} else {
-				fin += string(column[i])
-			}
-		}
-		return fin
 	}
+	fin := ""
+	foundUndie := false
+	for i := 0; i < len(column); i++ {
+		if i == 0 {
+			fin += strings.ToUpper(string(column[i]))
+			continue
+		}
+
+		if column[i] == '_' {
+			foundUndie = true
+			continue
+		}
+
+		if foundUndie {
+			fin += strings.ToUpper(string(column[i]))
+			foundUndie = false
+		} else {
+			fin += string(column[i])
+		}
+	}
+	return fin
 }
 
-func encodeCompilerCache(cache compilerCache) string {
-	home, _ := os.UserHomeDir()
-	cpath := filepath.Join(home, "dicecache.gob")
-
+func encodeCompilerCache(path string, cache compilerCache) string {
 	var buf bytes.Buffer
 	err := gob.NewEncoder(&buf).Encode(cache)
 	if err != nil {
@@ -225,20 +227,17 @@ func encodeCompilerCache(cache compilerCache) string {
 		return ""
 	}
 
-	err = ioutil.WriteFile(cpath, buf.Bytes(), 0755)
+	err = ioutil.WriteFile(path, buf.Bytes(), 0755)
 	if err != nil {
 		log.Sugar().Error(err)
 		return ""
 	}
 
-	return cpath
+	return path
 }
 
-func decodeCompilerCache(cache *compilerCache) error {
-	home, _ := os.UserHomeDir()
-	cpath := filepath.Join(home, "dicecache.gob")
-
-	b, err := ioutil.ReadFile(cpath)
+func decodeCompilerCache(path string, cache *compilerCache) error {
+	b, err := ioutil.ReadFile(path)
 	if err != nil {
 		return errors.New(
 			"dice: compiler cache not found. try dice -cache if migration is already done")
@@ -306,4 +305,9 @@ func checkConfig(source string) error {
 			source)
 	}
 	return nil
+}
+
+func getCachePath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, "dicecache.gob")
 }
