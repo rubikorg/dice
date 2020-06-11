@@ -36,7 +36,6 @@ liked_count = { type = "int", ignore = true }
 		var buf bytes.Buffer
 		toml.NewEncoder(&buf).Encode(Options{})
 		ioutil.WriteFile(cfgp, buf.Bytes(), 0755)
-
 	}
 
 	if dsf, _ := os.Stat(dummysp); dsf == nil {

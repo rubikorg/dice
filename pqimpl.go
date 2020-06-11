@@ -67,7 +67,8 @@ type FieldData struct {
 	Value     interface{}
 }
 
-func (b PqBase) Target(t interface{}, ctx ...context.Context) BaseStmt {
+// Target implements dice.BaseStmt.
+func (pb PqBase) Target(t interface{}, ctx ...context.Context) BaseStmt {
 	_, err := checkTarget(t)
 	if err != nil {
 		panic(err)
@@ -83,37 +84,38 @@ func (b PqBase) Target(t interface{}, ctx ...context.Context) BaseStmt {
 	return base
 }
 
-func (b PqBase) Find(f FilterStmt, seq SequenceStmt) error {
-	b.filter = f
-	b.seq = seq
+// Find implements dice.BaseStmt for SELECT clause in SQL.
+func (pb PqBase) Find(f FilterStmt, seq SequenceStmt) error {
+	pb.filter = f
+	pb.seq = seq
 
-	model := createTargetModel(b.target)
+	model := createTargetModel(pb.target)
 
-	err := generateSelectQuery(&b, model)
+	err := generateSelectQuery(&pb, model)
 	if err != nil {
 		return err
 	}
 
 	log.Debug("Executing find method",
-		zap.String("query", b.query),
+		zap.String("query", pb.query),
 		zap.Object("filter", sqlFilterMarshaler{f.(*SQLFilter)}),
 	)
 
 	if f != nil {
 		qf := f.(*SQLFilter)
 		if qf.limit == 1 {
-			return querySingle(&b, model)
-		} else {
-			// if targetElem.Kind() != reflect.Array &&
-			// 	targetElem.Kind() != reflect.Slice {
-			// 	msg := "this query can return multiple rows. please use []%s"
-			// 	return fmt.Errorf(msg, reflect.TypeOf(b.target).Elem().Name())
-			// }
-			return queryMultiple(&b, model, b.target)
+			return querySingle(&pb, model)
 		}
-	} else {
-		return queryMultiple(&b, model, b.target)
+
+		// if targetElem.Kind() != reflect.Array &&
+		// 	targetElem.Kind() != reflect.Slice {
+		// 	msg := "this query can return multiple rows. please use []%s"
+		// 	return fmt.Errorf(msg, reflect.TypeOf(b.target).Elem().Name())
+		// }
+		return queryMultiple(&pb, model, pb.target)
 	}
+
+	return queryMultiple(&pb, model, pb.target)
 }
 
 // checkTarget verifies if the target provided by the Base.Target()
@@ -184,6 +186,7 @@ func scanMultiple(b *PqBase, model Model, rows *sql.Rows, target interface{}) er
 			values = append(values, targetStructVal.FieldByName(e).Addr().Interface())
 		}
 	}
+
 	for rows.Next() {
 		err := rows.Scan(values...)
 		if err != nil {
@@ -192,6 +195,7 @@ func scanMultiple(b *PqBase, model Model, rows *sql.Rows, target interface{}) er
 
 		targetSliceVal.Set(reflect.Append(targetSliceVal, targetStructVal))
 	}
+
 	return nil
 }
 
@@ -210,14 +214,17 @@ func createTargetModel(target interface{}) Model {
 	return reflect.New(targetElem).Interface().(Model)
 }
 
+// Update implements dice.BaseStmt.
 func (PqBase) Update(f FilterStmt) error {
 	return nil
 }
 
+// Delete implements dice.BaseStmt.
 func (PqBase) Delete(f FilterStmt) error {
 	return nil
 }
 
+// Create implements dice.BaseStmt for SQL
 func (pb PqBase) Create() (Result, error) {
 	model, _ := reflect.ValueOf(pb.target).Interface().(Model)
 
@@ -231,6 +238,7 @@ func (pb PqBase) Create() (Result, error) {
 		for c := range ceq {
 			colsSl = append(colsSl, c)
 		}
+
 		cols := strings.Join(colsSl, ",")
 		query = fmt.Sprintf("INSERT INTO \"%s\"(%s) VALUES (%v)",
 			model.TableName(), cols, values)
@@ -240,6 +248,7 @@ func (pb PqBase) Create() (Result, error) {
 	if ctx == nil {
 		ctx = context.TODO()
 	}
+
 	res, err := orm.db.ExecContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -253,11 +262,15 @@ func (cdh *columnDataHolder) Must(cond Comparison, value interface{}) {
 	cdh.qf.addConditions(cdh.column, cdh.logicalComparison, cond, value)
 }
 
+// Chunk returns a chunk of recordset of your query. Look
+// for dice.FilterStmnt for more details.
 func (qf *SQLFilter) Chunk(limit, offset int) {
 	qf.limit = limit
 	qf.offset = offset
 }
 
+// Or puts together a logical or clause for your WHERE statement.
+// This is a custom implementation only for dice.SQLFilter
 func (qf *SQLFilter) Or(column string) *columnDataHolder {
 	cd := columnDataHolder{
 		qf:                qf,
@@ -292,32 +305,39 @@ func (qf *SQLFilter) addConditions(
 	}
 }
 
+// Field is dice.FilterStmt method.
 func (qf *SQLFilter) Field(name string) *columnDataHolder {
 	return &columnDataHolder{qf: qf, logicalComparison: AND, column: name}
 }
 
+// Match implemented for SQLFilter from FilterStmt.
 func (qf *SQLFilter) Match(data []FieldData) {
 	for _, d := range data {
 		if d.LogicalComparison == "" {
 			d.LogicalComparison = AND
 		}
+
 		if d.Condition == "" {
 			d.Condition = Eq
 		}
+
 		qf.addConditions(d.Name, d.LogicalComparison, d.Condition, d.Value)
 	}
 }
 
+// Pick implements selection for SQL.
 func (qf *SQLFilter) Pick(fields ...string) {
 	qf.selection = fields
 }
 
+// Asc implements SequenceStmt.Asc.
 func (rs ResultSequence) Asc(column ...string) {
 	for i := 0; i < len(column); i++ {
 		rs[column[i]] = Asc
 	}
 }
 
+// Desc implements SequenceStmt.Desc.
 func (rs ResultSequence) Desc(column ...string) {
 	for i := 0; i < len(column); i++ {
 		rs[column[i]] = Desc
@@ -355,6 +375,7 @@ func generateSelectQuery(b *PqBase, model Model) error {
 		} else {
 			and = append(and, w)
 		}
+
 		b.values = append(b.values, d.Value)
 		qcount++
 	}
@@ -367,6 +388,7 @@ func generateSelectQuery(b *PqBase, model Model) error {
 			whereClause = strings.Join(or, " OR ")
 		}
 	}
+
 	q += whereClause
 
 	if f.limit == 1 {
@@ -374,5 +396,6 @@ func generateSelectQuery(b *PqBase, model Model) error {
 	}
 
 	b.query = q + ";"
+
 	return nil
 }

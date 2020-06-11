@@ -68,9 +68,9 @@ func Compile(source, destination string, engine DriverIdent, opts ...Options) er
 
 	log.Sugar().Debugf("Primary keys are: %#v", pk)
 	log.Sugar().Debugf("Compiler cache generated: %#v", cache)
+
 	cpath := getCachePath()
 	p := encodeCompilerCache(cpath, cache)
-
 	if p != "" {
 		log.Sugar().Debugf("Compiler cache written to %s", p)
 	} else {
@@ -183,6 +183,7 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 			return pk, ccahe,
 				fmt.Errorf("table: %s does not have a primary key, not allowed", s.Table)
 		}
+
 		ccahe.ColEquivalents[s.Table] = ceq
 	}
 
@@ -196,6 +197,7 @@ func createStructName(column string) string {
 		c0 := column[0]
 		return strings.ToUpper(string(c0)) + column[1:]
 	}
+
 	fin := ""
 	foundUndie := false
 	for i := 0; i < len(column); i++ {
@@ -293,7 +295,6 @@ func getSchemaList(diceFiles []string) ([]Schema, error) {
 }
 
 func generateModels(opts Options, pk map[string]string, cache compilerCache) error {
-
 	return nil
 }
 
@@ -304,6 +305,7 @@ func checkConfig(source string) error {
 		return fmt.Errorf("config.toml not found under %s. cannot assert dialect, do dice -init",
 			source)
 	}
+
 	return nil
 }
 
