@@ -17,17 +17,17 @@ func setup() {
 	cfgp := filepath.Join(spath, "config.toml")
 	dummysp := filepath.Join(spath, "posts.dice")
 	dummySchema := `
-table = "posts"
-model = "Post"
-create_dates = true
+	table = "posts"
+	model = "Post"
+	create_dates = true
 
-[columns]
-id = { type = "int", table_pk = true }
-title = { type = "string" }
-comments = { type = "slice", model = "Comment", using = "comment_id" }
-comment_id = { type = "int", constraint = "comments(id)" }
-liked_count = { type = "int", ignore = true }
-`
+	[columns]
+	id = { type = "int", table_pk = true }
+	title = { type = "string" }
+	comments = { type = "slice", model = "Comment", using = "comment_id" }
+	comment_id = { type = "int", constraint = "comments(id)" }
+	liked_count = { type = "int", ignore = true }
+	`
 	os.MkdirAll(spath, 0755)
 	os.MkdirAll(mpath, 0755)
 	os.MkdirAll(tpath, 0755)
