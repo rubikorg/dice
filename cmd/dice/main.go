@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -12,20 +13,24 @@ import (
 	"github.com/rubikorg/dice"
 )
 
-func main() {
-	var src string
-	var dest string
-	var migrate bool
-	var cache bool
-	var init bool
-	var clean bool
+var (
+	src     string
+	dest    string
+	migrate bool
+	cache   bool
+	initF   bool
+	clean   bool
+	srcp    = filepath.Join(".", "schemas")
+	destp   = filepath.Join(".", "models")
+)
 
+func main() {
 	flag.StringVar(&src, "src", "", "source of your dice schema definitions")
 	flag.StringVar(&dest, "dest", "", "the destination of your compiled Go models")
 
 	flag.BoolVar(&migrate, "migrate", false, "run the migration with given -src and -dest")
 	flag.BoolVar(&cache, "cache", false, "generate new dice compiler cache")
-	flag.BoolVar(&init, "init", false, "initialize a config.toml for compiler configuration")
+	flag.BoolVar(&initF, "init", false, "initialize a config.toml for compiler configuration")
 	flag.BoolVar(&clean, "clean", false, "cleans the models and compiler cache")
 
 	flag.Parse()
@@ -36,71 +41,39 @@ func main() {
 		return
 	}
 
-	srcp := filepath.Join(".", "schemas")
-	destp := filepath.Join(".", "models")
-
-	var conf dice.Options
-	if src != "" {
-		confp := filepath.Join(src, "config.toml")
-		_, err := toml.DecodeFile(confp, &conf)
-		if err != nil {
-			panic(err)
-		}
-	} else {
-		confp := filepath.Join(srcp, "config.toml")
-		if f, _ := os.Stat(confp); f != nil {
-			_, err := toml.DecodeFile(confp, &conf)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
-
+	conf := getDiceOpts()
 	if conf.Source == "" || conf.Destination == "" {
 		conf.Source = srcp
 		conf.Destination = destp
 	}
 
 	if clean {
-		err := filepath.Walk(conf.Destination,
-			func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
-
-				if !info.IsDir() {
-					os.Remove(filepath.Join(conf.Destination, info.Name()))
-				}
-
-				return err
-			})
+		err := cleanFlagAction(conf)
 		if err != nil {
-			panic(err)
+			log.Fatal(err)
 		}
-		home, _ := os.UserHomeDir()
-		os.Remove(filepath.Join(home, "dicecache.gob"))
-		return
 	}
 
 	// if init flag is given but there is no custom src
 	// folders provided write to default ones
-	if init && src == "" {
+	if initF && src == "" {
 		os.MkdirAll(srcp, 0755)
 		err := writeNewConfig(srcp)
 		if err != nil {
-			panic(err)
+			log.Fatal(err)
 		}
 
-		fmt.Printf("generated config.toml inside ./%s. please change the dialect according to"+
+		log.Printf("generated config.toml inside ./%s. please change the dialect according to"+
 			" your database", srcp)
 
 		return
-	} else if init && src != "" {
+	} else if initF && src != "" {
 		os.MkdirAll(src, 0755)
 		err := writeNewConfig(src)
 		if err != nil {
-			panic(err)
+			log.Fatal(err)
 		}
+
 		return
 	}
 
@@ -138,6 +111,51 @@ func main() {
 			panic(err)
 		}
 	}
+}
+
+func cleanFlagAction(conf dice.Options) error {
+	err := filepath.Walk(conf.Destination,
+		func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !info.IsDir() {
+				os.Remove(filepath.Join(conf.Destination, info.Name()))
+			}
+
+			return err
+		})
+
+	if err != nil {
+		return err
+	}
+
+	home, _ := os.UserHomeDir()
+	os.Remove(filepath.Join(home, "dicecache.gob"))
+
+	return err
+}
+
+func getDiceOpts() dice.Options {
+	var conf dice.Options
+	if src != "" {
+		confp := filepath.Join(src, "config.toml")
+		_, err := toml.DecodeFile(confp, &conf)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		confp := filepath.Join(srcp, "config.toml")
+		if f, _ := os.Stat(confp); f != nil {
+			_, err := toml.DecodeFile(confp, &conf)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+
+	return conf
 }
 
 // writeNewConfig writes a new dice.Options{} into the src
