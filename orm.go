@@ -105,6 +105,7 @@ func Single(column string, value interface{}) FilterStmt {
 			}
 			qf.columnValues = append(qf.columnValues, cv)
 		}
+
 		qf.limit = 1
 		return &qf
 	default:
