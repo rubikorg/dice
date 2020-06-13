@@ -20,30 +20,42 @@ var (
 	cache   bool
 	initF   bool
 	clean   bool
+	help    bool
 	srcp    = filepath.Join(".", "schemas")
 	destp   = filepath.Join(".", "models")
 )
 
+func parse() {
+	if os.Getenv("devenv") != "test" {
+		flag.StringVar(&src, "src", "", "source of your dice schema definitions")
+		flag.StringVar(&dest, "dest", "", "the destination of your compiled Go models")
+
+		flag.BoolVar(&migrate, "migrate", false, "run the migration with given -src and -dest")
+		flag.BoolVar(&cache, "cache", false, "generate new dice compiler cache")
+		flag.BoolVar(&initF, "init", false, "initialize a config.toml for compiler configuration")
+		flag.BoolVar(&clean, "clean", false, "cleans the models and compiler cache")
+
+		flag.Parse()
+
+		help = len(flag.Args()) > 0 && flag.Args()[0] == "help"
+	}
+}
+
 func main() {
-	flag.StringVar(&src, "src", "", "source of your dice schema definitions")
-	flag.StringVar(&dest, "dest", "", "the destination of your compiled Go models")
+	parse()
 
-	flag.BoolVar(&migrate, "migrate", false, "run the migration with given -src and -dest")
-	flag.BoolVar(&cache, "cache", false, "generate new dice compiler cache")
-	flag.BoolVar(&initF, "init", false, "initialize a config.toml for compiler configuration")
-	flag.BoolVar(&clean, "clean", false, "cleans the models and compiler cache")
-
-	flag.Parse()
-
-	if len(flag.Args()) > 0 && flag.Args()[0] == "help" {
+	if help {
 		fmt.Print("Dice command line help screen: \n\n")
 		flag.PrintDefaults()
 		return
 	}
 
 	conf := getDiceOpts()
-	if conf.Source == "" || conf.Destination == "" {
+	if conf.Source == "" {
 		conf.Source = srcp
+	}
+
+	if conf.Destination == "" {
 		conf.Destination = destp
 	}
 
@@ -82,7 +94,7 @@ func main() {
 	if migrate && src == "" && dest == "" {
 		os.MkdirAll(srcp, 0755)
 		os.MkdirAll(destp, 0755)
-		err := dice.Compile(srcp, destp, dice.Postgres, dice.Options{Verbose: true})
+		err := dice.Compile(srcp, destp, dice.Options{Verbose: true})
 		if err != nil {
 			panic(err)
 		}
@@ -90,7 +102,7 @@ func main() {
 	} else if migrate && src != "" && dest != "" {
 		os.MkdirAll(src, 0755)
 		os.MkdirAll(dest, 0755)
-		err := dice.Compile(src, dest, dice.Postgres, dice.Options{Verbose: true})
+		err := dice.Compile(src, dest, dice.Options{Verbose: true})
 		if err != nil {
 			panic(err)
 		}
@@ -145,6 +157,13 @@ func getDiceOpts() dice.Options {
 		if err != nil {
 			panic(err)
 		}
+
+		// we are setting conf.Source as src because we
+		// found a valid config.toml iside the given
+		// -src flag. Thus it "can" be a valid source
+		if conf.Source == "" {
+			conf.Source = src
+		}
 	} else {
 		confp := filepath.Join(srcp, "config.toml")
 		if f, _ := os.Stat(confp); f != nil {
@@ -161,8 +180,10 @@ func getDiceOpts() dice.Options {
 // writeNewConfig writes a new dice.Options{} into the src
 // directory that you provide inside config.toml file.
 func writeNewConfig(src string) error {
+	os.MkdirAll(src, 0755)
+
 	opts := dice.Options{}
-	opts.Dialect = string(dice.Postgres)
+	opts.Dialect = dice.Postgres
 
 	confp := filepath.Join(src, "config.toml")
 	if f, _ := os.Stat(confp); f != nil {

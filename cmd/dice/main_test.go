@@ -1,0 +1,79 @@
+package main
+
+import (
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/rubikorg/dice"
+)
+
+func init() {
+	os.Setenv("devenv", "test")
+}
+
+func TestCleanFlagAction(t *testing.T) {
+	tsrcp := filepath.Join("..", "..", "schemas")
+	tdestp := filepath.Join("..", "..", "models")
+	conf := dice.Options{
+		Source:      tsrcp,
+		Destination: tdestp,
+	}
+	filep := filepath.Join(tdestp, "file.go")
+	ioutil.WriteFile(filep, []byte("hello"), 0755)
+
+	err := cleanFlagAction(conf)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if f, _ := os.Stat(filep); f != nil {
+		t.Errorf("cleanFlagAction() did not clean %s", filep)
+	}
+
+	conf.Destination = filepath.Join(".", "models")
+	err = cleanFlagAction(conf)
+	if err == nil {
+		t.Error("cleanFlagAction() did not return error for wrong destination")
+	}
+}
+
+func TestGetDiceOpts(t *testing.T) {
+	srcp = filepath.Join("..", "..", "schemas")
+	opts := getDiceOpts()
+	if opts.Dialect != "postgres" {
+		t.Error("getDiceOpts() did not parse config.toml properly")
+	}
+
+	src = srcp
+	newOpts := getDiceOpts()
+	if newOpts.Dialect != "postgres" {
+		t.Error("getDiceOpts() did not parse config.toml properly on flag passed")
+	}
+}
+
+func TestWriteNewConfig(t *testing.T) {
+	err := writeNewConfig(srcp)
+	if err != nil {
+		t.Error(err)
+	}
+
+	cf := filepath.Join(srcp, "config.toml")
+	if f, _ := os.Stat(cf); f == nil {
+		t.Errorf("writeNewConfig() did not write the file inside %s", cf)
+	}
+}
+
+func TestInitCacheFlag(t *testing.T) {
+	cache = true
+	src = filepath.Join("..", "..", "schemas")
+	dest = filepath.Join("..", "..", "models")
+	main()
+
+	home, _ := os.UserHomeDir()
+	cachep := filepath.Join(home, "dicecache.gob")
+	if f, _ := os.Stat(cachep); f == nil {
+		t.Errorf("-cache did not create cache file inside %s", cachep)
+	}
+}
