@@ -59,7 +59,9 @@ type holder struct {
 // database either sql.DB or mongo.Databse as the
 // base consumer of running queries.
 func Use(driver DriverIdent, db interface{}, opts ...Options) {
+
 	if len(opts) > 0 && opts[0].Verbose {
+
 		setLogger(true)
 	} else {
 		setLogger(false)
@@ -79,7 +81,8 @@ func Use(driver DriverIdent, db interface{}, opts ...Options) {
 		driver == Mongo {
 		orm.mdb = db.(*mongo.Database)
 	} else {
-		panic("dice: not a valid database connection object for driver name: " + string(driver))
+		panic("dice: not a valid database connection object for driver name: " +
+			string(driver))
 	}
 
 	orm.driver = driver

@@ -8,15 +8,27 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 )
 
-type colEquivalents map[string]string
+type colEquivalents struct {
+	ColName string
+	Kind    reflect.Kind
+	Attr    Structure
+}
 
 type compilerCache struct {
+	// ColEquivalents provies a flat structure to
+	// access the Field name of a table column
+	// for example: map[posts.title]{ColName: "Title"}
+	// will tell us that the data of column title
+	// must be decoded inside Title field of our
+	// dice.Model.
 	ColEquivalents map[string]colEquivalents
+	Columns        map[string][]string
 }
 
 // Compile parses your *.dice files and generates dice Models
@@ -24,8 +36,9 @@ type compilerCache struct {
 // the model generated can depend upon the given engine.
 // if all the compile logs needs to be displayed you can pass
 // dice.Options{Verbose: true}
-func Compile(source, destination string, engine DriverIdent, opts ...Options) error {
-	if len(opts) > 0 && opts[0].Verbose {
+func Compile(source, destination string, opts Options) error {
+
+	if opts.Verbose {
 		setLogger(true)
 	} else {
 		setLogger(false)
@@ -120,18 +133,27 @@ func CompileCache(source string, opts ...Options) error {
 	}
 
 	schemas, err := getSchemaList(diceFiles)
-	cache := compilerCache{make(map[string]colEquivalents)}
+	cache := compilerCache{
+		ColEquivalents: make(map[string]colEquivalents),
+		Columns:        make(map[string][]string),
+	}
 
 	for i := 0; i < len(schemas); i++ {
 		s := schemas[i]
+		cache.Columns[s.Table] = []string{}
 
-		ceq := make(colEquivalents)
-		for cname := range s.Columns {
+		for cname, attr := range s.Columns {
+			ceq := colEquivalents{}
 			n := createStructName(cname)
-			ceq[cname] = n
-		}
+			kind := getKindFromDiceConfig(attr.Type)
+			ceq.ColName = n
+			ceq.Kind = kind
+			ceq.Attr = attr
+			key := fmt.Sprintf("%s.%s", s.Table, cname)
+			cache.ColEquivalents[key] = ceq
 
-		cache.ColEquivalents[s.Table] = ceq
+			cache.Columns[s.Table] = append(cache.Columns[s.Table], cname)
+		}
 	}
 
 	cpath := getCachePath()
@@ -147,11 +169,15 @@ func CompileCache(source string, opts ...Options) error {
 
 func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 	pk := make(map[string]string)
-	ccahe := compilerCache{make(map[string]colEquivalents)}
+	cache := compilerCache{
+		ColEquivalents: make(map[string]colEquivalents),
+		Columns:        make(map[string][]string),
+	}
 
 	for i := 0; i < len(schemas); i++ {
 		s := schemas[i]
-		ceq := make(colEquivalents)
+		ceq := colEquivalents{}
+		var cols []string
 
 		// we verify if all columns have type variable in structure
 		// and if there is not more than one primery key definitions
@@ -159,37 +185,52 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 		// a column then if the target column exists or not
 		for cname, st := range s.Columns {
 			if st.Type == "" {
-				return pk, compilerCache{},
-					fmt.Errorf("column for %s::%s doesn't have type field", s.ModelName, cname)
+				return pk,
+					compilerCache{},
+					fmt.Errorf("column for %s::%s doesn't have type field",
+						s.ModelName, cname)
 			}
 
 			if st.TablePK && pk[s.Table] != "" {
-				msg := "We already have a primary key %s, column %s cannot be satisfied."
+				msg := "We already have a primary key %s, column %s" +
+					" cannot be satisfied."
 				return pk, compilerCache{}, fmt.Errorf(msg, pk, cname)
 			} else if st.TablePK && pk[s.Table] == "" {
 				pk[s.Table] = cname
 			}
 
 			if st.Using != "" && s.Columns[st.Using].Type == "" {
-				msg := "defined using=\"%s\" for field: %s but %s is not defined as a column"
-				return pk, compilerCache{}, fmt.Errorf(msg, st.Using, cname, st.Using)
+				msg := "defined using=\"%s\" for field: %s but %s" +
+					" is not defined as a column"
+				return pk, compilerCache{},
+					fmt.Errorf(msg, st.Using, cname, st.Using)
 			}
 
 			n := createStructName(cname)
-			ceq[cname] = n
+			kind := getKindFromDiceConfig(st.Type)
+			ceq.ColName = n
+			ceq.Kind = kind
+			ceq.Attr = st
+			key := fmt.Sprintf("%s.%s", s.Table, cname)
+			cache.ColEquivalents[key] = ceq
+
+			cols = append(cols, cname)
 		}
 
 		if pk[s.Table] == "" {
-			return pk, ccahe,
-				fmt.Errorf("table: %s does not have a primary key, not allowed", s.Table)
+			return pk, cache,
+				fmt.Errorf("table: %s does not have a primary key, not allowed",
+					s.Table)
+
 		}
 
-		ccahe.ColEquivalents[s.Table] = ceq
+		cache.Columns[s.Table] = cols
+
 	}
 
 	log.Sugar().Debug("Everything looks good, trying to create models...")
 
-	return pk, ccahe, nil
+	return pk, cache, nil
 }
 
 func createStructName(column string) string {
@@ -241,8 +282,9 @@ func encodeCompilerCache(path string, cache compilerCache) string {
 func decodeCompilerCache(path string, cache *compilerCache) error {
 	b, err := ioutil.ReadFile(path)
 	if err != nil {
-		return errors.New(
-			"dice: compiler cache not found. try dice -cache if migration is already done")
+		return errors.New("dice: compiler cache not found. try dice -cache" +
+			" if migration is already done")
+
 	}
 
 	buf := bytes.NewBuffer(b)
@@ -275,7 +317,7 @@ func getSchemaList(diceFiles []string) ([]Schema, error) {
 			return schemas, err
 		}
 
-		logToml(&s)
+		//logToml(&s)
 
 		if s.Table == "" {
 			msg := "dice: table name for %s cannot be empty. add `table` to the root"
@@ -284,7 +326,8 @@ func getSchemaList(diceFiles []string) ([]Schema, error) {
 			msg := "dice: model name for %s cannot be empty. add `model` to the root"
 			return schemas, fmt.Errorf(msg, p)
 		} else if len(s.Columns) == 0 {
-			msg := "dice: column list is empty for %s. Add [columns] object. not generating model\n"
+			msg := "dice: column list is empty for %s. Add [columns] object." +
+				" not generating model\n"
 			fmt.Printf(msg, p)
 		} else {
 			schemas = append(schemas, s)
@@ -302,8 +345,8 @@ func checkConfig(source string) error {
 	// check if config.toml is present to know the dialect
 	confp := filepath.Join(source, "config.toml")
 	if f, _ := os.Stat(confp); f == nil {
-		return fmt.Errorf("config.toml not found under %s. cannot assert dialect, do dice -init",
-			source)
+		return fmt.Errorf("config.toml not found under %s. cannot assert dialect, "+
+			"do dice -init", source)
 	}
 
 	return nil
@@ -312,4 +355,15 @@ func checkConfig(source string) error {
 func getCachePath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "dicecache.gob")
+}
+
+func getKindFromDiceConfig(ty string) reflect.Kind {
+	switch ty {
+	case "int":
+		return reflect.Int
+	case "string":
+		return reflect.String
+	default:
+		return reflect.String
+	}
 }

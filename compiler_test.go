@@ -34,7 +34,7 @@ func setup() {
 
 	if cf, _ := os.Stat(cfgp); cf == nil {
 		var buf bytes.Buffer
-		toml.NewEncoder(&buf).Encode(Options{})
+		toml.NewEncoder(&buf).Encode(Options{Dialect: "postgres"})
 		ioutil.WriteFile(cfgp, buf.Bytes(), 0755)
 	}
 
@@ -202,4 +202,66 @@ func TestDecodeCompilerCache(t *testing.T) {
 	if err == nil {
 		t.Error("decodeCompilerCache() should throw error when it did not find cache file")
 	}
+}
+
+func TestGetSchemaListRequiredData(t *testing.T) {
+	wrongSchema := Schema{}
+	wrongsp := filepath.Join(".", "schemas", "user.dice")
+	var buf bytes.Buffer
+	toml.NewEncoder(&buf).Encode(wrongSchema)
+	ioutil.WriteFile(wrongsp, buf.Bytes(), 0755)
+
+	df, _ := getDiceFiles(filepath.Dir(wrongsp))
+	_, err := getSchemaList(df)
+	if err == nil {
+		t.Error("getSchemaList() did not return error if table name is not mentioned")
+	}
+
+	wrongSchema.Table = "users"
+	testWriteSchema(wrongsp, &buf, wrongSchema)
+	_, err = getSchemaList(df)
+	if err == nil {
+		t.Error("getSchemaList() did not return error if model name is not mentioned")
+	}
+
+	wrongSchema.ModelName = "User"
+	testWriteSchema(wrongsp, &buf, wrongSchema)
+	sch, _ := getSchemaList(df)
+	// this means that the shchema was added for generation of models eventhough
+	// there is no columns
+	if len(sch) > 1 {
+		t.Error("getSchemaList() did not return error if columns is not mentioned")
+	}
+
+	os.Remove(wrongsp)
+}
+
+func TestCompileCache(t *testing.T) {
+	cachep := getCachePath()
+	os.Remove(cachep)
+	srcp := filepath.Join(".", "schemas")
+	err := CompileCache(srcp)
+	if err != nil {
+		t.Error(err)
+	}
+
+	if f, _ := os.Stat(cachep); f == nil {
+		t.Errorf("CompileCache() did not generate cache at %s even when correct schema", cachep)
+	}
+}
+
+func TestCompile(t *testing.T) {
+	srcp := filepath.Join(".", "schemas")
+	destp := filepath.Join(".", "models")
+	opts := Options{Verbose: false, Dialect: Postgres}
+	err := Compile(srcp, destp, opts)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func testWriteSchema(path string, buf *bytes.Buffer, s Schema) {
+	buf.Reset()
+	toml.NewEncoder(buf).Encode(s)
+	ioutil.WriteFile(path, buf.Bytes(), 0755)
 }

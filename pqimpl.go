@@ -226,35 +226,31 @@ func (PqBase) Delete(f FilterStmt) error {
 
 // Create implements dice.BaseStmt for SQL
 func (pb PqBase) Create() (Result, error) {
-	model, _ := reflect.ValueOf(pb.target).Interface().(Model)
-
+	model := createTargetModel(pb.target)
 	var query string
 	if pb.target == nil {
 		query = fmt.Sprintf("INSERT INTO \"%s\" DEFAULT VALUES", model.TableName())
 	} else {
-		ceq := orm.compilerCache.ColEquivalents[model.TableName()]
-		var colsSl []string
 		var values []interface{}
-		for c := range ceq {
-			colsSl = append(colsSl, c)
+		cols := orm.compilerCache.Columns[model.TableName()]
+		fmt.Println(orm.compilerCache)
+		val := reflect.ValueOf(pb.target).Elem()
+		valTempl := []string{}
+		for i, c := range cols {
+			key := fmt.Sprintf("%s.%s", model.TableName(), c)
+			fieldName := orm.compilerCache.ColEquivalents[key]
+			values = append(values, val.FieldByName(fieldName.ColName))
+			valTempl = append(valTempl, fmt.Sprintf("$%d", i+1))
 		}
-
-		cols := strings.Join(colsSl, ",")
-		query = fmt.Sprintf("INSERT INTO \"%s\"(%s) VALUES (%v)",
-			model.TableName(), cols, values)
+		createTempl := "INSERT INTO \"%s\" (%s) VALUES (%s)"
+		query = fmt.Sprintf(createTempl, model.TableName(),
+			strings.Join(cols, ", "), strings.Join(valTempl, ", "))
+		fmt.Println("coming here", cols, valTempl)
 	}
 
-	var ctx = pb.ctx
-	if ctx == nil {
-		ctx = context.TODO()
-	}
+	fmt.Println(query)
 
-	res, err := orm.db.ExecContext(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	return res, nil
+	return nil, nil
 }
 
 // Must defines a condition over a column which adds it in WHERE clause

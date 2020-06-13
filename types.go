@@ -135,9 +135,9 @@ type Options struct {
 	// Specifies for which dialect the models are being
 	// generated. Without this config dice migrations will
 	// not work.
-	Dialect     string `toml:"dialect"`
-	Source      string `toml:"source"`
-	Destination string `toml:"destination"`
+	Dialect     DriverIdent `toml:"dialect"`
+	Source      string      `toml:"source"`
+	Destination string      `toml:"destination"`
 	// Actions tells the compiler while running the
 	// migrations you can look for additions in
 	// columns or deletion of columns or not.
