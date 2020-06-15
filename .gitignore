@@ -4,3 +4,9 @@ models/
 
 # test file for testing queries
 test/
+
+# ignore vim swap files
+*.swp
+
+# ignore silver searcher ignore !! ag
+.agignore
