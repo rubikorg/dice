@@ -103,8 +103,9 @@ func Single(column string, value interface{}) FilterStmt {
 		qf := SQLFilter{}
 		if column != "" {
 			cv := FieldData{
-				Name:  column,
-				Value: value,
+				Name:      column,
+				Condition: Eq,
+				Value:     value,
 			}
 			qf.columnValues = append(qf.columnValues, cv)
 		}
