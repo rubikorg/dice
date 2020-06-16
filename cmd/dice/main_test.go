@@ -9,12 +9,14 @@ import (
 	"github.com/rubikorg/dice"
 )
 
+var tsrcp string
+
 func init() {
 	os.Setenv("devenv", "test")
+	tsrcp = filepath.Join("..", "..", "schemas_test")
 }
 
 func TestCleanFlagAction(t *testing.T) {
-	tsrcp := filepath.Join("..", "..", "schemas")
 	tdestp := filepath.Join("..", "..", "models")
 	conf := dice.Options{
 		Source:      tsrcp,
@@ -40,13 +42,12 @@ func TestCleanFlagAction(t *testing.T) {
 }
 
 func TestGetDiceOpts(t *testing.T) {
-	srcp = filepath.Join("..", "..", "schemas")
+	src = tsrcp
 	opts := getDiceOpts()
 	if opts.Dialect != "postgres" {
 		t.Error("getDiceOpts() did not parse config.toml properly")
 	}
 
-	src = srcp
 	newOpts := getDiceOpts()
 	if newOpts.Dialect != "postgres" {
 		t.Error("getDiceOpts() did not parse config.toml properly on flag passed")
@@ -67,7 +68,7 @@ func TestWriteNewConfig(t *testing.T) {
 
 func TestInitCacheFlag(t *testing.T) {
 	cache = true
-	src = filepath.Join("..", "..", "schemas")
+	src = tsrcp
 	dest = filepath.Join("..", "..", "models")
 	main()
 
