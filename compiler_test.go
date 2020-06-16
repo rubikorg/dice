@@ -10,8 +10,10 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+var spath string
+
 func setup() {
-	spath := filepath.Join(".", "schemas")
+	spath = filepath.Join(".", "schemas_test")
 	mpath := filepath.Join(".", "models")
 	tpath := filepath.Join(".", "test")
 	cfgp := filepath.Join(spath, "config.toml")
@@ -49,7 +51,7 @@ func init() {
 }
 
 func TestGetDiceFiles(t *testing.T) {
-	dfiles, err := getDiceFiles(filepath.Join(".", "schemas"))
+	dfiles, err := getDiceFiles(filepath.Join(spath))
 	if err != nil {
 		t.Error(err)
 	}
@@ -61,7 +63,7 @@ func TestGetDiceFiles(t *testing.T) {
 }
 
 func TestGetSchemaList(t *testing.T) {
-	dfiles, _ := getDiceFiles(filepath.Join(".", "schemas"))
+	dfiles, _ := getDiceFiles(spath)
 	l := len(dfiles)
 	if l == 0 {
 		t.Errorf("getDiceFiles() should return len 1 but got: %d", l)
@@ -86,9 +88,9 @@ func TestGetSchemaList2(t *testing.T) {
 	// we expect an error if toml is not parsable so the best way
 	// is to feed it a JSON ..lol
 	jsonFile := `{"hello": "world"}`
-	jdfPath := filepath.Join(".", "schemas", "json.dice")
+	jdfPath := filepath.Join(spath, "json.dice")
 	ioutil.WriteFile(jdfPath, []byte(jsonFile), 0755)
-	dfiles, _ := getDiceFiles(filepath.Join(".", "schemas"))
+	dfiles, _ := getDiceFiles(filepath.Join(spath))
 
 	_, err := getSchemaList(dfiles)
 	if err == nil {
@@ -99,7 +101,7 @@ func TestGetSchemaList2(t *testing.T) {
 }
 
 func TestCheckSchemas(t *testing.T) {
-	dfiles, _ := getDiceFiles(filepath.Join(".", "schemas"))
+	dfiles, _ := getDiceFiles(filepath.Join(spath))
 	s, _ := getSchemaList(dfiles)
 
 	pk, cache, err := checkSchemas(s)
@@ -123,7 +125,7 @@ func TestCheckSchemas2(t *testing.T) {
 	create_dates = true
 	[columns]
 	id = { table_pk = true }`
-	sp := filepath.Join(".", "schemas")
+	sp := filepath.Join(spath)
 	wsPath := filepath.Join(sp, "w.dice")
 	ioutil.WriteFile(wsPath, []byte(wrongSchema), 0755)
 
@@ -164,7 +166,7 @@ func TestGetCachePath(t *testing.T) {
 
 func TestCheckConfig(t *testing.T) {
 	wrongp := filepath.Join(".", "meh")
-	corrp := filepath.Join(".", "schemas")
+	corrp := filepath.Join(spath)
 
 	werr := checkConfig(wrongp)
 	if werr == nil {
@@ -180,7 +182,7 @@ func TestCheckConfig(t *testing.T) {
 
 func TestDecodeCompilerCache(t *testing.T) {
 	cache := compilerCache{}
-	testp := filepath.Join(".", "schemas", "testcache.gob")
+	testp := filepath.Join(spath, "testcache.gob")
 	p := encodeCompilerCache(testp, cache)
 	if p == "" {
 		t.Error("encodeCompilerCache() errored while testing decompile")
@@ -206,7 +208,7 @@ func TestDecodeCompilerCache(t *testing.T) {
 
 func TestGetSchemaListRequiredData(t *testing.T) {
 	wrongSchema := Schema{}
-	wrongsp := filepath.Join(".", "schemas", "user.dice")
+	wrongsp := filepath.Join(spath, "user.dice")
 	var buf bytes.Buffer
 	toml.NewEncoder(&buf).Encode(wrongSchema)
 	ioutil.WriteFile(wrongsp, buf.Bytes(), 0755)
@@ -230,7 +232,7 @@ func TestGetSchemaListRequiredData(t *testing.T) {
 	// this means that the shchema was added for generation of models eventhough
 	// there is no columns
 	if len(sch) > 1 {
-		t.Error("getSchemaList() did not return error if columns is not mentioned")
+		t.Errorf("getSchemaList() returned more than 1 model [when] only 1 is correct %v", sch)
 	}
 
 	os.Remove(wrongsp)
@@ -239,7 +241,7 @@ func TestGetSchemaListRequiredData(t *testing.T) {
 func TestCompileCache(t *testing.T) {
 	cachep := getCachePath()
 	os.Remove(cachep)
-	srcp := filepath.Join(".", "schemas")
+	srcp := filepath.Join(spath)
 	err := CompileCache(srcp)
 	if err != nil {
 		t.Error(err)
@@ -251,7 +253,7 @@ func TestCompileCache(t *testing.T) {
 }
 
 func TestCompile(t *testing.T) {
-	srcp := filepath.Join(".", "schemas")
+	srcp := filepath.Join(spath)
 	destp := filepath.Join(".", "models")
 	opts := Options{Verbose: false, Dialect: Postgres}
 	err := Compile(srcp, destp, opts)

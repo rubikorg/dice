@@ -14,6 +14,18 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+type modelData struct {
+	BaseStmt     string
+	Filter       string
+	Dialect      DriverIdent
+	ModelName    string
+	Columns      string
+	PK           string
+	TableName    string
+	FieldList    []colEquivalents
+	initFileData string
+}
+
 type colEquivalents struct {
 	ColName string
 	Kind    reflect.Kind
@@ -27,8 +39,9 @@ type compilerCache struct {
 	// will tell us that the data of column title
 	// must be decoded inside Title field of our
 	// dice.Model.
-	ColEquivalents map[string]colEquivalents
-	Columns        map[string][]string
+	ColEquivalents   map[string]colEquivalents
+	Columns          map[string][]string
+	ModelEquivalents map[string]string
 }
 
 // Compile parses your *.dice files and generates dice Models
@@ -80,7 +93,7 @@ func Compile(source, destination string, opts Options) error {
 	}
 
 	log.Sugar().Debugf("Primary keys are: %#v", pk)
-	log.Sugar().Debugf("Compiler cache generated: %#v", cache)
+	//log.Sugar().Debugf("Compiler cache generated: %#v", cache)
 
 	cpath := getCachePath()
 	p := encodeCompilerCache(cpath, cache)
@@ -94,11 +107,8 @@ func Compile(source, destination string, opts Options) error {
 		return err
 	}
 
-	// TODO: generate the models using Go's templating
-	// err = generateModels()
-	// if err != nil {
-	// 	return err
-	// }
+	opts.Destination = destination
+	generateModels(opts, pk, cache)
 
 	return nil
 }
@@ -134,13 +144,15 @@ func CompileCache(source string, opts ...Options) error {
 
 	schemas, err := getSchemaList(diceFiles)
 	cache := compilerCache{
-		ColEquivalents: make(map[string]colEquivalents),
-		Columns:        make(map[string][]string),
+		ColEquivalents:   make(map[string]colEquivalents),
+		Columns:          make(map[string][]string),
+		ModelEquivalents: make(map[string]string),
 	}
 
 	for i := 0; i < len(schemas); i++ {
 		s := schemas[i]
 		cache.Columns[s.Table] = []string{}
+		cache.ModelEquivalents[s.Table] = s.ModelName
 
 		for cname, attr := range s.Columns {
 			ceq := colEquivalents{}
@@ -170,8 +182,9 @@ func CompileCache(source string, opts ...Options) error {
 func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 	pk := make(map[string]string)
 	cache := compilerCache{
-		ColEquivalents: make(map[string]colEquivalents),
-		Columns:        make(map[string][]string),
+		ColEquivalents:   make(map[string]colEquivalents),
+		Columns:          make(map[string][]string),
+		ModelEquivalents: make(map[string]string),
 	}
 
 	for i := 0; i < len(schemas); i++ {
@@ -225,6 +238,7 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 		}
 
 		cache.Columns[s.Table] = cols
+		cache.ModelEquivalents[s.Table] = s.ModelName
 
 	}
 
@@ -337,8 +351,31 @@ func getSchemaList(diceFiles []string) ([]Schema, error) {
 	return schemas, nil
 }
 
-func generateModels(opts Options, pk map[string]string, cache compilerCache) error {
-	return nil
+func generateModels(opts Options, pks map[string]string, cache compilerCache) {
+	// clean the target models folder
+	err := cleanDestinationFolder(opts.Destination)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	for table, pk := range pks {
+		md := modelData{}
+		md.Dialect = opts.Dialect
+		md.ModelName = cache.ModelEquivalents[table]
+		md.TableName = table
+		md.PK = pk
+		var fl []colEquivalents
+		var colFields []string
+		for _, col := range cache.Columns[table] {
+			key := fmt.Sprintf("%s.%s", table, col)
+			fl = append(fl, cache.ColEquivalents[key])
+			colFields = append(colFields, cache.ColEquivalents[key].ColName)
+		}
+		md.Columns = "\"" + strings.Join(colFields, "\",\"") + "\""
+		md.FieldList = fl
+		writeModelTemplate(md, opts.Destination)
+	}
 }
 
 func checkConfig(source string) error {

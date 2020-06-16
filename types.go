@@ -149,5 +149,6 @@ type Options struct {
 		LookForDeletions bool `toml:"no_deletions"`
 	} `toml:"actions"`
 	// Verbose tells compiler to log everything
-	Verbose bool `toml:"verbose"`
+	Verbose     bool       `toml:"verbose"`
+	Credentials ConnectURI `toml:"credentials"`
 }

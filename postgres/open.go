@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 
-	// this import is is used to only load the driver needed
-	// if main package has it it will have side effects of
-	// all the dialects driver
+	// this import is used to only load the driver needed
+	// if main package has it then it will have side effects
+	// of all the dialects driver
 	_ "github.com/lib/pq"
 	"github.com/rubikorg/dice"
 )
