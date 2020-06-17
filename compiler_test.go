@@ -16,7 +16,7 @@ func setup() {
 	spath = filepath.Join(".", "schemas_test")
 	mpath := filepath.Join(".", "models")
 	tpath := filepath.Join(".", "test")
-	cfgp := filepath.Join(spath, "config.toml")
+	cfgp := filepath.Join(spath, "config.yaml")
 	dummysp := filepath.Join(spath, "posts.dice")
 	dummySchema := `
 table: "posts"
@@ -28,8 +28,8 @@ columns:
   title: { type: "string" }
   comments: { type: "slice", model: "Comment", using: "comment_id" }
   comment_id: { type: "int", constraint: "comments(id)" }
-  liked_count: { type: "int", ignore: true }
-	`
+  liked_count: { type: "int", ignore: true }`
+
 	os.MkdirAll(spath, 0755)
 	os.MkdirAll(mpath, 0755)
 	os.MkdirAll(tpath, 0755)
