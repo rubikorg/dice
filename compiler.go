@@ -3,6 +3,7 @@ package dice
 import (
 	"bytes"
 	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -11,7 +12,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/BurntSushi/toml"
+	"gopkg.in/yaml.v2"
 )
 
 type modelData struct {
@@ -40,7 +41,7 @@ type compilerCache struct {
 	// must be decoded inside Title field of our
 	// dice.Model.
 	ColEquivalents   map[string]colEquivalents
-	Columns          map[string][]string
+	ColumnAttrs      map[string][]string
 	ModelEquivalents map[string]string
 }
 
@@ -108,7 +109,7 @@ func Compile(source, destination string, opts Options) error {
 	}
 
 	opts.Destination = destination
-	generateModels(opts, pk, cache)
+	generateModels(opts, pk, cache, schemas)
 
 	return nil
 }
@@ -143,18 +144,21 @@ func CompileCache(source string, opts ...Options) error {
 	}
 
 	schemas, err := getSchemaList(diceFiles)
+	if err != nil {
+		return err
+	}
 	cache := compilerCache{
 		ColEquivalents:   make(map[string]colEquivalents),
-		Columns:          make(map[string][]string),
+		ColumnAttrs:      make(map[string][]string),
 		ModelEquivalents: make(map[string]string),
 	}
 
 	for i := 0; i < len(schemas); i++ {
 		s := schemas[i]
-		cache.Columns[s.Table] = []string{}
+		cache.ColumnAttrs[s.Table] = []string{}
 		cache.ModelEquivalents[s.Table] = s.ModelName
 
-		for cname, attr := range s.Columns {
+		for cname, attr := range s.ColumnAttrs {
 			ceq := colEquivalents{}
 			n := createStructName(cname)
 			kind := getKindFromDiceConfig(attr.Type)
@@ -164,7 +168,7 @@ func CompileCache(source string, opts ...Options) error {
 			key := fmt.Sprintf("%s.%s", s.Table, cname)
 			cache.ColEquivalents[key] = ceq
 
-			cache.Columns[s.Table] = append(cache.Columns[s.Table], cname)
+			cache.ColumnAttrs[s.Table] = append(cache.ColumnAttrs[s.Table], cname)
 		}
 	}
 
@@ -183,7 +187,7 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 	pk := make(map[string]string)
 	cache := compilerCache{
 		ColEquivalents:   make(map[string]colEquivalents),
-		Columns:          make(map[string][]string),
+		ColumnAttrs:      make(map[string][]string),
 		ModelEquivalents: make(map[string]string),
 	}
 
@@ -196,7 +200,7 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 		// and if there is not more than one primery key definitions
 		// we also check if `using` attribute is used to define
 		// a column then if the target column exists or not
-		for cname, st := range s.Columns {
+		for cname, st := range s.ColumnAttrs {
 			if st.Type == "" {
 				return pk,
 					compilerCache{},
@@ -212,7 +216,7 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 				pk[s.Table] = cname
 			}
 
-			if st.Using != "" && s.Columns[st.Using].Type == "" {
+			if st.Using != "" && s.ColumnAttrs[st.Using].Type == "" {
 				msg := "defined using=\"%s\" for field: %s but %s" +
 					" is not defined as a column"
 				return pk, compilerCache{},
@@ -234,10 +238,9 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 			return pk, cache,
 				fmt.Errorf("table: %s does not have a primary key, not allowed",
 					s.Table)
-
 		}
 
-		cache.Columns[s.Table] = cols
+		cache.ColumnAttrs[s.Table] = cols
 		cache.ModelEquivalents[s.Table] = s.ModelName
 
 	}
@@ -326,12 +329,26 @@ func getSchemaList(diceFiles []string) ([]Schema, error) {
 	var schemas []Schema
 	for _, p := range diceFiles {
 		var s Schema
-		_, err := toml.DecodeFile(p, &s)
+
+		b, err := ioutil.ReadFile(p)
+		err = yaml.Unmarshal(b, &s)
 		if err != nil {
 			return schemas, err
 		}
 
-		//logToml(&s)
+		var colAttrMap = make(map[string]Structure)
+		for _, c := range s.OrderedColumns {
+			st := Structure{}
+			var colAttrs = make(map[string]interface{})
+			for _, attr := range c.Value.(yaml.MapSlice) {
+				colAttrs[attr.Key.(string)] = attr.Value
+			}
+			b, _ := json.Marshal(colAttrs)
+			json.Unmarshal(b, &st)
+			colAttrMap[c.Key.(string)] = st
+		}
+
+		s.ColumnAttrs = colAttrMap
 
 		if s.Table == "" {
 			msg := "dice: table name for %s cannot be empty. add `table` to the root"
@@ -339,7 +356,7 @@ func getSchemaList(diceFiles []string) ([]Schema, error) {
 		} else if s.ModelName == "" {
 			msg := "dice: model name for %s cannot be empty. add `model` to the root"
 			return schemas, fmt.Errorf(msg, p)
-		} else if len(s.Columns) == 0 {
+		} else if len(s.ColumnAttrs) == 0 {
 			msg := "dice: column list is empty for %s. Add [columns] object." +
 				" not generating model\n"
 			fmt.Printf(msg, p)
@@ -351,7 +368,7 @@ func getSchemaList(diceFiles []string) ([]Schema, error) {
 	return schemas, nil
 }
 
-func generateModels(opts Options, pks map[string]string, cache compilerCache) {
+func generateModels(opts Options, pks map[string]string, cache compilerCache, schemas []Schema) {
 	// clean the target models folder
 	err := cleanDestinationFolder(opts.Destination)
 	if err != nil {
@@ -359,16 +376,16 @@ func generateModels(opts Options, pks map[string]string, cache compilerCache) {
 		return
 	}
 
-	for table, pk := range pks {
+	for _, sch := range schemas {
 		md := modelData{}
 		md.Dialect = opts.Dialect
-		md.ModelName = cache.ModelEquivalents[table]
-		md.TableName = table
-		md.PK = pk
+		md.ModelName = sch.ModelName
+		md.TableName = sch.Table
+		md.PK = pks[sch.Table]
 		var fl []colEquivalents
 		var colFields []string
-		for _, col := range cache.Columns[table] {
-			key := fmt.Sprintf("%s.%s", table, col)
+		for _, col := range sch.OrderedColumns {
+			key := fmt.Sprintf("%s.%s", sch.Table, col.Key.(string))
 			fl = append(fl, cache.ColEquivalents[key])
 			colFields = append(colFields, cache.ColEquivalents[key].ColName)
 		}
@@ -380,9 +397,9 @@ func generateModels(opts Options, pks map[string]string, cache compilerCache) {
 
 func checkConfig(source string) error {
 	// check if config.toml is present to know the dialect
-	confp := filepath.Join(source, "config.toml")
+	confp := filepath.Join(source, "config.yaml")
 	if f, _ := os.Stat(confp); f == nil {
-		return fmt.Errorf("config.toml not found under %s. cannot assert dialect, "+
+		return fmt.Errorf("config.yaml not found under %s. cannot assert dialect, "+
 			"do dice -init", source)
 	}
 

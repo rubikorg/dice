@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/BurntSushi/toml"
 	"github.com/rubikorg/dice"
+	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -20,6 +20,7 @@ var (
 	cache   bool
 	initF   bool
 	clean   bool
+	uricode bool
 	help    bool
 	srcp    = filepath.Join(".", "schemas")
 	destp   = filepath.Join(".", "models")
@@ -32,7 +33,7 @@ func parse() {
 
 		flag.BoolVar(&migrate, "migrate", false, "run the migration with given -src and -dest")
 		flag.BoolVar(&cache, "cache", false, "generate new dice compiler cache")
-		flag.BoolVar(&initF, "init", false, "initialize a config.toml for compiler configuration")
+		flag.BoolVar(&initF, "init", false, "initialize a config.yaml for compiler configuration")
 		flag.BoolVar(&clean, "clean", false, "cleans the models and compiler cache")
 
 		flag.Parse()
@@ -75,7 +76,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		log.Printf("generated config.toml inside ./%s. please change the dialect according to"+
+		log.Printf("generated config.yaml inside ./%s. please change the dialect according to"+
 			" your database", srcp)
 
 		return
@@ -152,22 +153,24 @@ func cleanFlagAction(conf dice.Options) error {
 func getDiceOpts() dice.Options {
 	var conf dice.Options
 	if src != "" {
-		confp := filepath.Join(src, "config.toml")
-		_, err := toml.DecodeFile(confp, &conf)
+		confp := filepath.Join(src, "config.yaml")
+		b, _ := ioutil.ReadFile(confp)
+		err := yaml.Unmarshal(b, &conf)
 		if err != nil {
 			panic(err)
 		}
 
 		// we are setting conf.Source as src because we
-		// found a valid config.toml iside the given
+		// found a valid config.yaml iside the given
 		// -src flag. Thus it "can" be a valid source
 		if conf.Source == "" {
 			conf.Source = src
 		}
 	} else {
-		confp := filepath.Join(srcp, "config.toml")
+		confp := filepath.Join(srcp, "config.yaml")
 		if f, _ := os.Stat(confp); f != nil {
-			_, err := toml.DecodeFile(confp, &conf)
+			b, _ := ioutil.ReadFile(confp)
+			err := yaml.Unmarshal(b, &conf)
 			if err != nil {
 				panic(err)
 			}
@@ -178,20 +181,20 @@ func getDiceOpts() dice.Options {
 }
 
 // writeNewConfig writes a new dice.Options{} into the src
-// directory that you provide inside config.toml file.
+// directory that you provide inside config.yaml file.
 func writeNewConfig(src string) error {
 	os.MkdirAll(src, 0755)
 
 	opts := dice.Options{}
 	opts.Dialect = dice.Postgres
 
-	confp := filepath.Join(src, "config.toml")
+	confp := filepath.Join(src, "config.yaml")
 	if f, _ := os.Stat(confp); f != nil {
 		return nil
 	}
 
 	var buf bytes.Buffer
-	err := toml.NewEncoder(&buf).Encode(&opts)
+	err := yaml.NewEncoder(&buf).Encode(&opts)
 	if err != nil {
 		return err
 	}

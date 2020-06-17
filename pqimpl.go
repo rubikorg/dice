@@ -3,6 +3,7 @@ package dice
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -220,7 +221,21 @@ func (PqBase) Update(f FilterStmt) error {
 }
 
 // Delete implements dice.BaseStmt.
-func (PqBase) Delete(f FilterStmt) error {
+func (pb PqBase) Delete(filter FilterStmt) error {
+	if filter == nil {
+		return errors.New("Delete() requires a filter. If you want to delete every record, use" +
+			"DeleteAll() method.")
+	}
+
+	q := "DELETE FROM \"%s\" WHERE  "
+	whereClause := (&pb).getSQLWhere()
+	q += whereClause + ";"
+
+	_, err := orm.db.ExecContext(pb.ctx, q, pb.values...)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -232,8 +247,7 @@ func (pb PqBase) Create() (Result, error) {
 		query = fmt.Sprintf("INSERT INTO \"%s\" DEFAULT VALUES", model.TableName())
 	} else {
 		var values []interface{}
-		cols := orm.compilerCache.Columns[model.TableName()]
-		fmt.Println(orm.compilerCache)
+		cols := orm.compilerCache.ColumnAttrs[model.TableName()]
 		val := reflect.ValueOf(pb.target).Elem()
 		valTempl := []string{}
 		for i, c := range cols {
@@ -242,10 +256,10 @@ func (pb PqBase) Create() (Result, error) {
 			values = append(values, val.FieldByName(fieldName.ColName))
 			valTempl = append(valTempl, fmt.Sprintf("$%d", i+1))
 		}
+
 		createTempl := "INSERT INTO \"%s\" (%s) VALUES (%s)"
 		query = fmt.Sprintf(createTempl, model.TableName(),
 			strings.Join(cols, ", "), strings.Join(valTempl, ", "))
-		fmt.Println("coming here", cols, valTempl)
 	}
 
 	fmt.Println(query)
@@ -355,37 +369,13 @@ func generateSelectQuery(b *PqBase, model Model) error {
 
 	q = fmt.Sprintf(q, slt, model.TableName())
 	fmt.Println(f.columnValues)
-	and := []string{}
-	or := []string{}
+
 	if len(f.columnValues) > 0 {
 		// for where clause here
 		q += " WHERE "
 	}
 
-	qcount := 1
-
-	for _, d := range f.columnValues {
-		var w = fmt.Sprintf("%s%s$%d", d.Name, string(d.Condition), qcount)
-		if d.LogicalComparison == OR {
-			or = append(or, w)
-		} else {
-			and = append(and, w)
-		}
-
-		b.values = append(b.values, d.Value)
-		qcount++
-	}
-
-	whereClause := strings.Join(and, string(AND))
-	if len(or) > 0 {
-		if whereClause != "" {
-			whereClause += fmt.Sprintf(" OR %s", strings.Join(or, string(OR)))
-		} else {
-			whereClause = strings.Join(or, " OR ")
-		}
-	}
-
-	q += whereClause
+	q += b.getSQLWhere()
 
 	if f.limit == 1 {
 		q += " LIMIT 1"
@@ -394,4 +384,34 @@ func generateSelectQuery(b *PqBase, model Model) error {
 	b.query = q + ";"
 
 	return nil
+}
+
+func (pb *PqBase) getSQLWhere() string {
+	qcount := 1
+
+	and := []string{}
+	or := []string{}
+	f := pb.filter.(*SQLFilter)
+	for _, d := range f.columnValues {
+		var w = fmt.Sprintf("%s%s$%d", d.Name, string(d.Condition), qcount)
+		if d.LogicalComparison == OR {
+			or = append(or, w)
+		} else {
+			and = append(and, w)
+		}
+
+		pb.values = append(pb.values, d.Value)
+		qcount++
+	}
+
+	whereClause := strings.Join(and, string(AND))
+	if len(or) > 0 {
+		if whereClause != "" {
+			whereClause += fmt.Sprintf(" OR %s", strings.Join(or, string(OR)))
+		} else {
+			whereClause = strings.Join(or, string(OR))
+		}
+	}
+
+	return whereClause
 }

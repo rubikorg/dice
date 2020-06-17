@@ -1,6 +1,10 @@
 package dice
 
-import "context"
+import (
+	"context"
+
+	"gopkg.in/yaml.v2"
+)
 
 // Model interface satisfies the the dice model requirements
 // To become a dice model the caller must be able to
@@ -95,28 +99,31 @@ type Result interface {
 // ConnectURI is the generalized struct for connecteing to your
 // database drivers.
 type ConnectURI struct {
-	Host     string `toml:"host" json:"host"`
-	Port     int    `toml:"port" json:"port"`
-	Database string `toml:"db" json:"db"`
-	Username string `toml:"username" json:"username"`
-	Password string `toml:"password" json:"password"`
-	SSL      bool   `toml:"ssl" json:"ssl"`
+	Host     string `yaml:"host" json:"host"`
+	Port     int    `yaml:"port" json:"port"`
+	Database string `yaml:"db" json:"db"`
+	Username string `yaml:"username" json:"username"`
+	Password string `yaml:"password" json:"password"`
+	SSL      bool   `yaml:"ssl" json:"ssl"`
 }
 
 // Structure is the definition of properties of a column. A dice
 // field is nothing but the column of your table with it's
 // structure definition provided inside `${tableName}.dice`.
 type Structure struct {
-	Type          string `toml:"type"`
-	TablePK       bool   `toml:"table_pk"`
-	Unique        bool   `toml:"unique"`
-	AutoIncrement bool   `toml:"auto_increment"`
-	IsNotNull     bool   `toml:"not_null"`
-	Default       string `toml:"default"`
-	Constraint    string `toml:"constraint"`
-	Using         string `toml:"using"`
-	Ignore        bool   `toml:"ignore"`
-	// Mixins        []string `toml:"mixins"`
+	// The reason why these fields have json tags is because after
+	// we get yaml.MapSlice we want to unmarshal column values
+	// as dice.Structure
+	Type          string `json:"type"`
+	TablePK       bool   `json:"table_pk"`
+	Unique        bool   `json:"unique"`
+	AutoIncrement bool   `json:"auto_increment"`
+	IsNotNull     bool   `json:"not_null"`
+	Default       string `json:"default"`
+	Constraint    string `json:"constraint"`
+	Using         string `json:"using"`
+	Ignore        bool   `json:"ignore"`
+	// Mixins        []string `yaml:"mixins"`
 }
 
 // Schema defines your database table/collection. The schema definition
@@ -124,10 +131,11 @@ type Structure struct {
 // files is located inside source folder of your file system from which
 // the target application compiles into the file.go dice Models.
 type Schema struct {
-	Table             string               `toml:"table"`
-	ModelName         string               `toml:"model"`
-	ShouldCreateDates bool                 `toml:"create_dates"`
-	Columns           map[string]Structure `toml:"columns"`
+	Table             string        `yaml:"table"`
+	ModelName         string        `yaml:"model"`
+	ShouldCreateDates bool          `yaml:"create_dates"`
+	OrderedColumns    yaml.MapSlice `yaml:"columns"`
+	ColumnAttrs       map[string]Structure
 }
 
 // The Options present in config.toml
@@ -135,9 +143,9 @@ type Options struct {
 	// Specifies for which dialect the models are being
 	// generated. Without this config dice migrations will
 	// not work.
-	Dialect     DriverIdent `toml:"dialect"`
-	Source      string      `toml:"source"`
-	Destination string      `toml:"destination"`
+	Dialect     DriverIdent `yaml:"dialect"`
+	Source      string      `yaml:"source"`
+	Destination string      `yaml:"destination"`
 	// Actions tells the compiler while running the
 	// migrations you can look for additions in
 	// columns or deletion of columns or not.
@@ -145,10 +153,10 @@ type Options struct {
 	// set it up automatically or deletes it if
 	// cache has it and latest source does not.
 	Actions struct {
-		LookForAdditions bool `toml:"no_additions"`
-		LookForDeletions bool `toml:"no_deletions"`
-	} `toml:"actions"`
+		LookForAdditions bool `yaml:"no_additions"`
+		LookForDeletions bool `yaml:"no_deletions"`
+	} `yaml:"actions"`
 	// Verbose tells compiler to log everything
-	Verbose     bool       `toml:"verbose"`
-	Credentials ConnectURI `toml:"credentials"`
+	Verbose     bool       `yaml:"verbose"`
+	Credentials ConnectURI `yaml:"credentials"`
 }

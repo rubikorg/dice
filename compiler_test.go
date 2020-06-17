@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/BurntSushi/toml"
+	"gopkg.in/yaml.v2"
 )
 
 var spath string
@@ -19,25 +19,24 @@ func setup() {
 	cfgp := filepath.Join(spath, "config.toml")
 	dummysp := filepath.Join(spath, "posts.dice")
 	dummySchema := `
-	table = "posts"
-	model = "Post"
-	create_dates = true
+table: "posts"
+model: "Post"
+create_dates: true
 
-	[columns]
-	id = { type = "int", table_pk = true }
-	title = { type = "string" }
-	comments = { type = "slice", model = "Comment", using = "comment_id" }
-	comment_id = { type = "int", constraint = "comments(id)" }
-	liked_count = { type = "int", ignore = true }
+columns:
+  id: { type: "int", table_pk: true }
+  title: { type: "string" }
+  comments: { type: "slice", model: "Comment", using: "comment_id" }
+  comment_id: { type: "int", constraint: "comments(id)" }
+  liked_count: { type: "int", ignore: true }
 	`
 	os.MkdirAll(spath, 0755)
 	os.MkdirAll(mpath, 0755)
 	os.MkdirAll(tpath, 0755)
 
 	if cf, _ := os.Stat(cfgp); cf == nil {
-		var buf bytes.Buffer
-		toml.NewEncoder(&buf).Encode(Options{Dialect: "postgres"})
-		ioutil.WriteFile(cfgp, buf.Bytes(), 0755)
+		b, _ := yaml.Marshal(Options{Dialect: "postgres"})
+		ioutil.WriteFile(cfgp, b, 0755)
 	}
 
 	if dsf, _ := os.Stat(dummysp); dsf == nil {
@@ -120,11 +119,12 @@ func TestCheckSchemas(t *testing.T) {
 }
 
 func TestCheckSchemas2(t *testing.T) {
-	wrongSchema := `table = "w"
-	model = "W"
-	create_dates = true
-	[columns]
-	id = { table_pk = true }`
+	wrongSchema := `
+table: "w"
+model: "W"
+create_dates: true
+columns:
+  id: { table_pk: true }`
 	sp := filepath.Join(spath)
 	wsPath := filepath.Join(sp, "w.dice")
 	ioutil.WriteFile(wsPath, []byte(wrongSchema), 0755)
@@ -210,7 +210,7 @@ func TestGetSchemaListRequiredData(t *testing.T) {
 	wrongSchema := Schema{}
 	wrongsp := filepath.Join(spath, "user.dice")
 	var buf bytes.Buffer
-	toml.NewEncoder(&buf).Encode(wrongSchema)
+	yaml.NewEncoder(&buf).Encode(wrongSchema)
 	ioutil.WriteFile(wrongsp, buf.Bytes(), 0755)
 
 	df, _ := getDiceFiles(filepath.Dir(wrongsp))
@@ -264,6 +264,6 @@ func TestCompile(t *testing.T) {
 
 func testWriteSchema(path string, buf *bytes.Buffer, s Schema) {
 	buf.Reset()
-	toml.NewEncoder(buf).Encode(s)
+	yaml.NewEncoder(buf).Encode(s)
 	ioutil.WriteFile(path, buf.Bytes(), 0755)
 }
