@@ -46,7 +46,7 @@ func main() {
 	parse()
 
 	if help {
-		fmt.Print("Dice command line help screen: \n\n")
+		fmt.Print("Dice command line help screen: \n")
 		flag.PrintDefaults()
 		return
 	}
@@ -76,8 +76,8 @@ func main() {
 			log.Fatal(err)
 		}
 
-		log.Printf("generated config.yaml inside ./%s. please change the dialect according to"+
-			" your database", srcp)
+		log.Printf("generated config.yaml inside ./%s. please change the dialect "+
+			"according to your database", srcp)
 
 		return
 	} else if initF && src != "" {
@@ -161,7 +161,7 @@ func getDiceOpts() dice.Options {
 		}
 
 		// we are setting conf.Source as src because we
-		// found a valid config.yaml iside the given
+		// found a valid config.yaml inside the given
 		// -src flag. Thus it "can" be a valid source
 		if conf.Source == "" {
 			conf.Source = src

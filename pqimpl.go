@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -28,6 +29,7 @@ type DriverIdent string
 type PqBase struct {
 	target   interface{}
 	ctx      context.Context
+	cancel   context.CancelFunc
 	table    string
 	filter   FilterStmt
 	seq      SequenceStmt
@@ -77,9 +79,14 @@ func (pb PqBase) Target(t interface{}, ctx ...context.Context) BaseStmt {
 
 	base := PqBase{target: t}
 	if len(ctx) > 0 {
+		// TODO: change this part to get context from filter
+		// may be filter must have a func called WithContext????
+		// idk!!
 		base.ctx = ctx[0]
 	} else {
-		base.ctx = context.TODO()
+		c, cf := context.WithCancel(context.TODO())
+		base.ctx = c
+		base.cancel = cf
 	}
 
 	return base
@@ -222,12 +229,15 @@ func (PqBase) Update(f FilterStmt) error {
 
 // Delete implements dice.BaseStmt.
 func (pb PqBase) Delete(filter FilterStmt) error {
+	model := createTargetModel(pb.target)
+
+	pb.filter = filter
 	if filter == nil {
-		return errors.New("Delete() requires a filter. If you want to delete every record, use" +
-			"DeleteAll() method.")
+		return errors.New("Delete() requires a filter. If you want to delete every " +
+			"record, use DeleteAll() method.")
 	}
 
-	q := "DELETE FROM \"%s\" WHERE  "
+	q := fmt.Sprintf("DELETE FROM \"%s\" WHERE ", model.TableName())
 	whereClause := (&pb).getSQLWhere()
 	q += whereClause + ";"
 
@@ -243,28 +253,60 @@ func (pb PqBase) Delete(filter FilterStmt) error {
 func (pb PqBase) Create() (Result, error) {
 	model := createTargetModel(pb.target)
 	var query string
+	var values []interface{}
+	var pkVal interface{}
 	if pb.target == nil {
 		query = fmt.Sprintf("INSERT INTO \"%s\" DEFAULT VALUES", model.TableName())
 	} else {
-		var values []interface{}
 		cols := orm.compilerCache.ColumnAttrs[model.TableName()]
-		val := reflect.ValueOf(pb.target).Elem()
+		tval := reflect.ValueOf(pb.target).Elem()
+		colVals := []string{}
 		valTempl := []string{}
-		for i, c := range cols {
+		vCount := 1
+		for _, c := range cols {
 			key := fmt.Sprintf("%s.%s", model.TableName(), c)
 			fieldName := orm.compilerCache.ColEquivalents[key]
-			values = append(values, val.FieldByName(fieldName.ColName))
-			valTempl = append(valTempl, fmt.Sprintf("$%d", i+1))
+			if c != model.PK() {
+				tvalField := tval.FieldByName(fieldName.ColName).Interface()
+				switch tvalField.(type) {
+				case sql.NullTime:
+					t := tvalField.(sql.NullTime)
+					if t.Time.IsZero() {
+						t.Time = time.Now()
+					}
+
+					values = append(values, t.Time.Format(time.RFC3339))
+					break
+				case int:
+					values = append(values, tvalField)
+					break
+				default:
+					values = append(values, tvalField)
+					break
+				}
+
+				colVals = append(colVals, c)
+				valTempl = append(valTempl, fmt.Sprintf("$%d", vCount))
+				vCount++
+			} else {
+				pkVal = tval.FieldByName(fieldName.ColName).Addr().Interface()
+			}
 		}
 
-		createTempl := "INSERT INTO \"%s\" (%s) VALUES (%s)"
+		createTempl := "INSERT INTO \"%s\" (%s) VALUES (%s) RETURNING %s;"
 		query = fmt.Sprintf(createTempl, model.TableName(),
-			strings.Join(cols, ", "), strings.Join(valTempl, ", "))
+			strings.Join(colVals, ", "), strings.Join(valTempl, ", "), model.PK())
+
+		fmt.Println("query:", query)
 	}
 
-	fmt.Println(query)
+	err := orm.db.QueryRowContext(pb.ctx, query, values...).Scan(pkVal)
+	return nil, err
+}
 
-	return nil, nil
+// Cancel lets you cancel the execution of current query
+func (pq PqBase) Cancel() {
+	pq.cancel()
 }
 
 // Must defines a condition over a column which adds it in WHERE clause
