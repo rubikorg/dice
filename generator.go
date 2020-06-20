@@ -34,28 +34,47 @@ func (M{{ .ModelName }}) TableName() string {
 	return "{{ .TableName }}"
 }
 
-func {{ .ModelName }}() (*M{{ .ModelName }}, dice.BaseStmt) {
+func {{ .ModelName }}(vm ...*M{{ .ModelName }}) (*M{{ .ModelName }}, dice.BaseStmt) {
+	if len(vm) > 0 {
+		return vm[0], dice.{{ .BaseStmt }}{}.Target(vm[0])
+	}
+
 	var m M{{ .ModelName }}
-	return &m, dice.{{ .BaseStmt }}{}.Target(&m)
+	return  &m, dice.{{ .BaseStmt }}{}.Target(&m)
 }
 
-func {{ .ModelName }}s() (*[]M{{ .ModelName }}, dice.BaseStmt) {
+func {{ .ModelName }}s(vms ...*[]M{{ .ModelName }}) (*[]M{{ .ModelName }}, dice.BaseStmt) {
+	if len(vms) > 0 {
+		return vms[0], dice.{{ .BaseStmt }}{}.Target(vms[0])
+	}
+
 	var m []M{{ .ModelName }}
-	return &m, dice.{{ .BaseStmt }}{}.Target(&m)
+	return  &m, dice.{{ .BaseStmt }}{}.Target(&m)
 }
 `
 
 var initTemplatePq = `package models
 
 import (
+	"io/ioutil"
+
 	"github.com/rubikorg/dice"
 	"github.com/rubikorg/dice/postgres"
-	"github.com/BurntSushi/toml"
+	"gopkg.in/yaml.v2"
 )
 
 func Init() error {
 	var opts dice.Options
-	_, err := toml.DecodeFile("./dice.toml", &opts)
+	b, err := ioutil.ReadFile("./dice.yaml")
+	if err != nil {
+		return err
+	}
+
+	err = yaml.Unmarshal(b, &opts)
+	if err != nil {
+		return err
+	}
+
 	db, err := postgres.Connect(opts.Credentials)
 	if err != nil {
 		return err
@@ -93,11 +112,10 @@ func writeModelTemplate(md modelData, dest string) {
 		return
 	}
 
-	// TODO: think about where to put this init code
-	// err = ioutil.WriteFile(filepath.Join(dest, "init.go"), []byte(md.initFileData), 0755)
-	// if err != nil {
-	// 	fmt.Println(err)
-	// }
+	err = ioutil.WriteFile(filepath.Join(dest, "init.go"), []byte(md.initFileData), 0755)
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	fixedImports, err := imports.Process(modelPath, formatted, nil)
 	// write formatted code to model file
