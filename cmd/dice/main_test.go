@@ -60,7 +60,7 @@ func TestWriteNewConfig(t *testing.T) {
 		t.Error(err)
 	}
 
-	cf := filepath.Join(srcp, "config.toml")
+	cf := filepath.Join(srcp, "config.yaml")
 	if f, _ := os.Stat(cf); f == nil {
 		t.Errorf("writeNewConfig() did not write the file inside %s", cf)
 	}
