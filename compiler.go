@@ -91,7 +91,9 @@ func Compile(source, destination string, opts Options) error {
 		return nil
 	}
 
-	pk, cache, err := checkSchemas(schemas)
+	pk, cache := getModelProperties(schemas)
+
+	err = checkSchemas(schemas)
 	if err != nil {
 		return err
 	}
@@ -150,6 +152,22 @@ func CompileCache(source string, opts ...Options) error {
 	if err != nil {
 		return err
 	}
+
+	_, cache := getModelProperties(schemas)
+
+	cpath := getCachePath()
+	p := encodeCompilerCache(cpath, cache)
+	if p == "" {
+		return errors.New("an error occured while writing dice cache file")
+	}
+
+	slog.Debugf("Cache written to %s", p)
+
+	return nil
+}
+
+func getModelProperties(schemas []Schema) (map[string]string, compilerCache) {
+	pk := make(map[string]string)
 	cache := compilerCache{
 		ColEquivalents:   make(map[string]colEquivalents),
 		ColNames:         make(map[string][]string),
@@ -172,33 +190,23 @@ func CompileCache(source string, opts ...Options) error {
 			cache.ColEquivalents[key] = ceq
 
 			cache.ColNames[s.Table] = append(cache.ColNames[s.Table], cname)
+
+			// check if primary key is mentioned in the
+			// schema defeinition
+			if attr.TablePK && pk[s.Table] == "" {
+				pk[s.Table] = cname
+			}
 		}
 	}
 
-	cpath := getCachePath()
-	p := encodeCompilerCache(cpath, cache)
-	if p == "" {
-		return errors.New("an error occured while writing dice cache file")
-	}
-
-	slog.Debugf("Cache written to %s", p)
-
-	return nil
+	return pk, cache
 }
 
-func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
-	pk := make(map[string]string)
-	cache := compilerCache{
-		ColEquivalents:   make(map[string]colEquivalents),
-		ColNames:         make(map[string][]string),
-		ModelEquivalents: make(map[string]string),
-	}
-
+func checkSchemas(schemas []Schema) error {
 	var modelList = []string{}
 
 	for i := 0; i < len(schemas); i++ {
 		s := schemas[i]
-		ceq := colEquivalents{}
 		var cols []string
 
 		// we verify if all columns have type variable in structure
@@ -207,55 +215,36 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 		// a column then if the target column exists or not
 		for cname, st := range s.ColumnAttrs {
 			if st.Type == "" {
-				return pk,
-					compilerCache{},
-					fmt.Errorf("column for %s::%s doesn't have type field",
-						s.ModelName, cname)
+				return fmt.Errorf("column for %s::%s doesn't have type field",
+					s.ModelName, cname)
 			}
 
 			// check if primary key is mentioned in the
 			// schema defeinition
-			if st.TablePK && pk[s.Table] != "" {
-				msg := "We already have a primary key %s, column %s" +
-					" cannot be satisfied."
-				return pk, compilerCache{}, fmt.Errorf(msg, pk, cname)
-			} else if st.TablePK && pk[s.Table] == "" {
-				pk[s.Table] = cname
-			}
+			// if st.TablePK && pk[s.Table] != "" {
+			// 	msg := "We already have a primary key %s, column %s" +
+			// 		" cannot be satisfied."
+			// 	return fmt.Errorf(msg, pk, cname)
+			// } else if st.TablePK && pk[s.Table] == "" {
+			// 	pk[s.Table] = cname
+			// }
 
 			if st.Using != "" && s.ColumnAttrs[st.Using].Type == "" {
 				msg := "defined using=\"%s\" for field: %s but %s" +
 					" is not defined as a column"
-				return pk, compilerCache{},
-					fmt.Errorf(msg, st.Using, cname, st.Using)
+				return fmt.Errorf(msg, st.Using, cname, st.Using)
 			}
 
 			if st.Reference != "" && st.Through == "" {
 				msg := "ref in column: '%s' is defined but through is not defined" +
 					" for binding joins for table '%s'"
-				return pk, cache, fmt.Errorf(msg, cname, s.Table)
+				return fmt.Errorf(msg, cname, s.Table)
 
 			}
-
-			n := createStructName(cname)
-			kind := getKindFromDiceConfig(st.Type)
-			ceq.ColName = n
-			ceq.Kind = kind
-			ceq.Attr = st
-			key := fmt.Sprintf("%s.%s", s.Table, cname)
-			cache.ColEquivalents[key] = ceq
 
 			cols = append(cols, cname)
 		}
 
-		if pk[s.Table] == "" {
-			return pk, cache,
-				fmt.Errorf("table: %s does not have a primary key, not allowed",
-					s.Table)
-		}
-
-		cache.ColNames[s.Table] = cols
-		cache.ModelEquivalents[s.Table] = s.ModelName
 		modelList = append(modelList, s.ModelName)
 
 	}
@@ -265,19 +254,17 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 	for i := 0; i < len(schemas); i++ {
 		s := schemas[i]
 		for cname, attr := range s.ColumnAttrs {
-			if attr.Reference != "" {
-				if !sliceContainsStr(modelList, attr.Reference) {
-					msg := "There is no model named %s defined in dice schema files. " +
-						"Cannot reference it for column: %s in table: %s."
-					return pk, cache, fmt.Errorf(msg, attr.Reference, cname, s.Table)
-				}
+			if attr.Reference != "" && !sliceContainsStr(modelList, attr.Reference) {
+				msg := "There is no model named %s defined in dice schema files. " +
+					"Cannot reference it for column: %s in table: %s."
+				return fmt.Errorf(msg, attr.Reference, cname, s.Table)
 			}
 		}
 	}
 
 	log.Sugar().Debug("Everything looks good, trying to create models...")
 
-	return pk, cache, nil
+	return nil
 }
 
 func createStructName(column string) string {

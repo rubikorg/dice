@@ -103,19 +103,21 @@ func TestCheckSchemas(t *testing.T) {
 	dfiles, _ := getDiceFiles(filepath.Join(spath))
 	s, _ := getSchemaList(dfiles)
 
-	pk, cache, err := checkSchemas(s)
+	err := checkSchemas(s)
 	if err != nil {
 		t.Error(err)
 	}
 
-	if len(pk) == 0 {
-		t.Errorf("checkSchemas() 1st return value must have some values found %d values", len(pk))
-	}
+	// TODO: abstract this part into a new test for getModelProperties
 
-	if len(cache.ColEquivalents) == 0 {
-		t.Errorf("checkSchemas() 2nd return value must have some values found %d values",
-			len(cache.ColEquivalents))
-	}
+	// if len(pk) == 0 {
+	// 	t.Errorf("checkSchemas() 1st return value must have some values found %d values", len(pk))
+	// }
+	//
+	// if len(cache.ColEquivalents) == 0 {
+	// 	t.Errorf("checkSchemas() 2nd return value must have some values found %d values",
+	// 		len(cache.ColEquivalents))
+	// }
 }
 
 func TestCheckSchemas2(t *testing.T) {
@@ -132,7 +134,7 @@ columns:
 	dfiles, _ := getDiceFiles(sp)
 	s, _ := getSchemaList(dfiles)
 
-	_, _, err := checkSchemas(s)
+	err := checkSchemas(s)
 	if err == nil {
 		t.Error("checkSchemas() did not error when type is not defined in column `id`")
 	}
