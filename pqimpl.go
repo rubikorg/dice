@@ -112,7 +112,7 @@ func (pb PqBase) Find(f FilterStmt, seq SequenceStmt) error {
 	if f != nil {
 		qf := f.(*SQLFilter)
 		if qf.limit == 1 {
-			return querySingle(&pb, model)
+			return findSingle(&pb, model)
 		}
 
 		// if targetElem.Kind() != reflect.Array &&
@@ -120,10 +120,10 @@ func (pb PqBase) Find(f FilterStmt, seq SequenceStmt) error {
 		// 	msg := "this query can return multiple rows. please use []%s"
 		// 	return fmt.Errorf(msg, reflect.TypeOf(b.target).Elem().Name())
 		// }
-		return queryMultiple(&pb, model, pb.target)
+		return findMultiple(&pb, model, pb.target)
 	}
 
-	return queryMultiple(&pb, model, pb.target)
+	return findMultiple(&pb, model, pb.target)
 }
 
 // checkTarget verifies if the target provided by the Base.Target()
@@ -147,7 +147,7 @@ func checkTarget(target interface{}) (Model, error) {
 	return createTargetModel(target), nil
 }
 
-func querySingle(b *PqBase, m Model) error {
+func findSingle(b *PqBase, m Model) error {
 	row := orm.db.QueryRowContext(b.ctx, b.query, b.values...)
 	return scanSingle(m, b.target, row)
 }
@@ -167,7 +167,7 @@ func scanSingle(model Model, target interface{}, row *sql.Row) error {
 	return nil
 }
 
-func queryMultiple(b *PqBase, model Model, target interface{}) error {
+func findMultiple(b *PqBase, model Model, target interface{}) error {
 	rows, err := orm.db.QueryContext(b.ctx, b.query, b.values...)
 	if err != nil {
 		return err
@@ -223,7 +223,18 @@ func createTargetModel(target interface{}) Model {
 }
 
 // Update implements dice.BaseStmt.
-func (PqBase) Update(f FilterStmt) error {
+func (pb PqBase) Update(f FilterStmt) error {
+	pb.filter = f
+	_ = createTargetModel(pb.target)
+
+	// 1. if filter is nil then we have to check if primary
+	// key field is present inside target
+	// if it is not then error
+	// 2. if primary key is a zero value and filter is also
+	// nil then also error
+
+	// create update template
+	// ignore pk during update
 	return nil
 }
 
@@ -258,7 +269,7 @@ func (pb PqBase) Create() (Result, error) {
 	if pb.target == nil {
 		query = fmt.Sprintf("INSERT INTO \"%s\" DEFAULT VALUES", model.TableName())
 	} else {
-		cols := orm.compilerCache.ColumnAttrs[model.TableName()]
+		cols := orm.compilerCache.ColNames[model.TableName()]
 		tval := reflect.ValueOf(pb.target).Elem()
 		colVals := []string{}
 		valTempl := []string{}
@@ -275,7 +286,7 @@ func (pb PqBase) Create() (Result, error) {
 						t.Time = time.Now()
 					}
 
-					values = append(values, t.Time.Format(time.RFC3339))
+					values = append(values, t.Time)
 					break
 				case int:
 					values = append(values, tvalField)
