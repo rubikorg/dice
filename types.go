@@ -68,6 +68,7 @@ type FilterStmt interface {
 	// It is equivalent to SELECT (*) in SQL databases and
 	// $projection in Mongo
 	Pick(...string)
+	// TODO: remove context passing from baseStmt to here as WithContext()
 }
 
 // SequenceStmt determines the sequence in which the data from
@@ -122,7 +123,9 @@ type Structure struct {
 	Default       string `json:"default"`
 	Constraint    string `json:"constraint"`
 	Using         string `json:"using"`
+	Through       string `json:"through"`
 	Ignore        bool   `json:"ignore"`
+	Reference     string `json:"ref"`
 	// Mixins        []string `yaml:"mixins"`
 }
 

@@ -63,6 +63,10 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+func GetFilter() *dice.{{ .Filter }} {
+	return &dice.{{ .Filter }}{}
+}
+
 func Init() error {
 	var opts dice.Options
 	b, err := ioutil.ReadFile("./dice.yaml")
@@ -112,7 +116,20 @@ func writeModelTemplate(md modelData, dest string) {
 		return
 	}
 
-	err = ioutil.WriteFile(filepath.Join(dest, "init.go"), []byte(md.initFileData), 0755)
+	buf.Reset()
+	initTempl, err := template.New("init").Parse(initTemplatePq)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+
+	err = initTempl.Execute(&buf, md)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	err = ioutil.WriteFile(filepath.Join(dest, "init.go"), buf.Bytes(), 0755)
 	if err != nil {
 		fmt.Println(err)
 	}
