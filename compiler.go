@@ -25,6 +25,7 @@ type modelData struct {
 	TableName    string
 	FieldList    []colEquivalents
 	initFileData string
+	FinalType    string
 }
 
 type colEquivalents struct {
@@ -40,8 +41,11 @@ type compilerCache struct {
 	// will tell us that the data of column title
 	// must be decoded inside Title field of our
 	// dice.Model.
-	ColEquivalents   map[string]colEquivalents
-	ColumnAttrs      map[string][]string
+	ColEquivalents map[string]colEquivalents
+	// ColNames is table and it's list of columns
+	ColNames map[string][]string
+	// ModelEquivalents maintains a map of table name and it's equivalent
+	// model name for dice model file generations
 	ModelEquivalents map[string]string
 }
 
@@ -51,7 +55,6 @@ type compilerCache struct {
 // if all the compile logs needs to be displayed you can pass
 // dice.Options{Verbose: true}
 func Compile(source, destination string, opts Options) error {
-
 	if opts.Verbose {
 		setLogger(true)
 	} else {
@@ -94,7 +97,7 @@ func Compile(source, destination string, opts Options) error {
 	}
 
 	log.Sugar().Debugf("Primary keys are: %#v", pk)
-	//log.Sugar().Debugf("Compiler cache generated: %#v", cache)
+	log.Sugar().Debugf("Compiler cache generated")
 
 	cpath := getCachePath()
 	p := encodeCompilerCache(cpath, cache)
@@ -149,13 +152,13 @@ func CompileCache(source string, opts ...Options) error {
 	}
 	cache := compilerCache{
 		ColEquivalents:   make(map[string]colEquivalents),
-		ColumnAttrs:      make(map[string][]string),
+		ColNames:         make(map[string][]string),
 		ModelEquivalents: make(map[string]string),
 	}
 
 	for i := 0; i < len(schemas); i++ {
 		s := schemas[i]
-		cache.ColumnAttrs[s.Table] = []string{}
+		cache.ColNames[s.Table] = []string{}
 		cache.ModelEquivalents[s.Table] = s.ModelName
 
 		for cname, attr := range s.ColumnAttrs {
@@ -168,7 +171,7 @@ func CompileCache(source string, opts ...Options) error {
 			key := fmt.Sprintf("%s.%s", s.Table, cname)
 			cache.ColEquivalents[key] = ceq
 
-			cache.ColumnAttrs[s.Table] = append(cache.ColumnAttrs[s.Table], cname)
+			cache.ColNames[s.Table] = append(cache.ColNames[s.Table], cname)
 		}
 	}
 
@@ -187,9 +190,11 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 	pk := make(map[string]string)
 	cache := compilerCache{
 		ColEquivalents:   make(map[string]colEquivalents),
-		ColumnAttrs:      make(map[string][]string),
+		ColNames:         make(map[string][]string),
 		ModelEquivalents: make(map[string]string),
 	}
+
+	var modelList = []string{}
 
 	for i := 0; i < len(schemas); i++ {
 		s := schemas[i]
@@ -208,6 +213,8 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 						s.ModelName, cname)
 			}
 
+			// check if primary key is mentioned in the
+			// schema defeinition
 			if st.TablePK && pk[s.Table] != "" {
 				msg := "We already have a primary key %s, column %s" +
 					" cannot be satisfied."
@@ -221,6 +228,13 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 					" is not defined as a column"
 				return pk, compilerCache{},
 					fmt.Errorf(msg, st.Using, cname, st.Using)
+			}
+
+			if st.Reference != "" && st.Through == "" {
+				msg := "ref in column: '%s' is defined but through is not defined" +
+					" for binding joins for table '%s'"
+				return pk, cache, fmt.Errorf(msg, cname, s.Table)
+
 			}
 
 			n := createStructName(cname)
@@ -240,9 +254,25 @@ func checkSchemas(schemas []Schema) (map[string]string, compilerCache, error) {
 					s.Table)
 		}
 
-		cache.ColumnAttrs[s.Table] = cols
+		cache.ColNames[s.Table] = cols
 		cache.ModelEquivalents[s.Table] = s.ModelName
+		modelList = append(modelList, s.ModelName)
 
+	}
+
+	// a loop to check if type inferred as `ref` has a model defined as a
+	// schema or not
+	for i := 0; i < len(schemas); i++ {
+		s := schemas[i]
+		for cname, attr := range s.ColumnAttrs {
+			if attr.Reference != "" {
+				if !sliceContainsStr(modelList, attr.Reference) {
+					msg := "There is no model named %s defined in dice schema files. " +
+						"Cannot reference it for column: %s in table: %s."
+					return pk, cache, fmt.Errorf(msg, attr.Reference, cname, s.Table)
+				}
+			}
+		}
 	}
 
 	log.Sugar().Debug("Everything looks good, trying to create models...")
@@ -343,6 +373,7 @@ func getSchemaList(diceFiles []string) ([]Schema, error) {
 			for _, attr := range c.Value.(yaml.MapSlice) {
 				colAttrs[attr.Key.(string)] = attr.Value
 			}
+
 			b, _ := json.Marshal(colAttrs)
 			json.Unmarshal(b, &st)
 			colAttrMap[c.Key.(string)] = st
@@ -391,6 +422,7 @@ func generateModels(opts Options, pks map[string]string, cache compilerCache, sc
 		}
 		md.Columns = "\"" + strings.Join(colFields, "\",\"") + "\""
 		md.FieldList = fl
+
 		writeModelTemplate(md, opts.Destination)
 	}
 }
@@ -420,4 +452,14 @@ func getKindFromDiceConfig(ty string) reflect.Kind {
 	default:
 		return reflect.String
 	}
+}
+
+func sliceContainsStr(slice []string, val string) bool {
+	for _, s := range slice {
+		if val == s {
+			return true
+		}
+	}
+
+	return false
 }
