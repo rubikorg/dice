@@ -1,5 +1,6 @@
-// Package dice provides you with simple and composable APIs for interacting with your
-// database. It provides a model generator and Object-Relational-Mapping interfaces.
+// Package dice provides you with simple and composable APIs for interacting
+// with your database. It provides a model generator and DataStructure
+// embeddinginterfaces.
 //
 // Initializing dice:
 //
@@ -16,10 +17,16 @@
 package dice
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
+	"io/ioutil"
 	"reflect"
 
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"gopkg.in/mgo.v2/bson"
+	"gopkg.in/yaml.v2"
 )
 
 const (
@@ -37,8 +44,8 @@ const (
 	OR  LogicalComparison = " OR "
 	AND                   = " AND "
 
-	Asc  SequenceOpts = "asc"
-	Desc              = "desc"
+	Asc  Order = "asc"
+	Desc       = "desc"
 
 	Postgres DriverIdent = "postgres"
 	MySQL                = "mysql"
@@ -49,75 +56,60 @@ const (
 var orm = holder{}
 
 type holder struct {
-	compilerCache
-	db     *sql.DB
-	mdb    *mongo.Database
-	driver DriverIdent
+	db   *sql.DB
+	mdb  *mongo.Database
+	opts Options
+}
+
+func UseOpts(o Options) {
+	orm.opts = o
+}
+
+func GetDiceOpts() (Options, error) {
+	var opts Options
+	b, err := ioutil.ReadFile("./dice.yaml")
+	if err != nil {
+		return opts, err
+	}
+
+	err = yaml.Unmarshal(b, &opts)
+	if err != nil {
+		return opts, err
+	}
+
+	return opts, nil
 }
 
 // Use sets driver identifier and the connection of
 // database either sql.DB or mongo.Databse as the
 // base consumer of running queries.
-func Use(driver DriverIdent, db interface{}, opts ...Options) {
-
-	if len(opts) > 0 && opts[0].Verbose {
-
-		setLogger(true)
-	} else {
-		setLogger(false)
-	}
-
-	p := getCachePath()
-	err := decodeCompilerCache(p, &orm.compilerCache)
-	if err != nil {
-		panic(err)
-	}
+func Use(db interface{}, opts Options) {
+	setLogger(true)
 
 	if reflect.TypeOf(db).Elem() == reflect.TypeOf(sql.DB{}) &&
-		isOneOf(string(driver), "postgres", "sqlite", "mysql") {
+		isOneOf(string(opts.Dialect), "postgres", "sqlite", "mysql") {
 		orm.db = db.(*sql.DB)
-		// slog.Info("Using sql.DB driver for ", string(driver))
-	} else if reflect.TypeOf(db).Elem() == reflect.TypeOf(mongo.Database{}) &&
-		driver == Mongo {
+		log.Sugar().Debugf("Using sql.DB driver for %s", string(opts.Dialect))
+	} else if reflect.TypeOf(db) == reflect.TypeOf(&mongo.Database{}) &&
+		opts.Dialect == Mongo {
 		orm.mdb = db.(*mongo.Database)
 	} else {
 		panic("dice: not a valid database connection object for driver name: " +
-			string(driver))
+			string(opts.Dialect))
 	}
 
-	orm.driver = driver
-}
-
-// Seq returns a empty map of dice.ResultSequence which satisfies
-// the SequenceStmt interface. This is mosttly used inside
-// Base.Find(filter, Seq()) to order your result
-func Seq() SequenceStmt {
-	return make(ResultSequence)
-}
-
-// Single returns a FilterStmt depending upon the dialect
-// of your SQL database / NoSQL database
-func Single(column string, value interface{}) FilterStmt {
-	switch orm.driver {
-	case Postgres, MySQL, SQLite:
-		qf := SQLFilter{}
-		if column != "" {
-			cv := FieldData{
-				Name:      column,
-				Condition: Eq,
-				Value:     value,
-			}
-			qf.columnValues = append(qf.columnValues, cv)
-		}
-
-		qf.limit = 1
-		return &qf
-	default:
-		return &SQLFilter{}
+	if orm.db == nil && orm.mdb == nil {
+		panic("dice: no driver can be set")
 	}
+
+	orm.opts = opts
 }
 
-func isOneOf(val string, rightOnes ...string) bool {
+func GetDB() *mongo.Database {
+	return orm.mdb
+}
+
+func isOneOf(val interface{}, rightOnes ...interface{}) bool {
 	for _, ro := range rightOnes {
 		if ro == val {
 			return true
@@ -125,4 +117,34 @@ func isOneOf(val string, rightOnes ...string) bool {
 	}
 
 	return false
+}
+
+func PopulateAll(relation string, oids []primitive.ObjectID, target interface{}) error {
+	// from relation map you can get the name of the struct
+	// field to populate
+	col := GetDB().Collection(relation)
+	cursor, err := col.Find(context.TODO(), Q{{"_id", bson.M{"$in": oids}}})
+	if err != nil {
+		return err
+	}
+
+	if err = cursor.All(context.TODO(), target); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func Populate(relation string, oid primitive.ObjectID, target interface{}) error {
+	col := GetDB().Collection(relation)
+	res := col.FindOne(context.TODO(), Q{{"_id", oid}})
+	if res == nil {
+		return fmt.Errorf("cannot populate relation %s", relation)
+	}
+
+	if err := res.Decode(target); err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -11,3 +11,6 @@ test/
 
 # ignore silver searcher ignore !! ag
 .agignore
+
+# dice configuration file
+dice.yaml

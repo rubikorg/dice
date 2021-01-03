@@ -6,7 +6,9 @@ import (
 	"go/format"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"text/template"
 
 	"golang.org/x/tools/imports"
@@ -14,12 +16,15 @@ import (
 
 var modelTemplate = `package models
 
-import dice "github.com/rubikorg/dice"
+import (
+	"context"
+
+	dice "github.com/rubikorg/dice"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
 
 type M{{ .ModelName }} struct {
-	{{- range .FieldList }}
-	{{ .ColName }} {{ if eq .Attr.Type "slice" }} []string {{ else }} {{ .Attr.Type -}} {{ end }}
-	{{- end }}
+	ID primitive.ObjectID ` + "`bson:\"_id\" json:\"_id\"`" + `
 }
 
 func (M{{ .ModelName }}) ColumnList() []string {
@@ -30,42 +35,82 @@ func (M{{ .ModelName }}) PK() string {
 	return "{{ .PK }}"
 }
 
-func (M{{ .ModelName }}) TableName() string {
+func {{ .ModelName }}sCollection() string {
 	return "{{ .TableName }}"
 }
 
-func {{ .ModelName }}(vm ...*M{{ .ModelName }}) (*M{{ .ModelName }}, dice.BaseStmt) {
-	if len(vm) > 0 {
-		return vm[0], dice.{{ .BaseStmt }}{}.Target(vm[0])
+func (g *M{{ .ModelName }}) FindOne(query dice.Q) {
+	col := dice.GetDB().Collection({{ .ModelName }}sCollection())
+	res := col.FindOne(context.TODO(), query)
+	if res != nil {
+		res.Decode(g)
 	}
-
-	var m M{{ .ModelName }}
-	return  &m, dice.{{ .BaseStmt }}{}.Target(&m)
 }
 
-func {{ .ModelName }}s(vms ...*[]M{{ .ModelName }}) (*[]M{{ .ModelName }}, dice.BaseStmt) {
-	if len(vms) > 0 {
-		return vms[0], dice.{{ .BaseStmt }}{}.Target(vms[0])
+func (g *M{{ .ModelName }}) Save() primitive.ObjectID {
+	col := dice.GetDB().Collection({{ .ModelName }}sCollection())
+	res, err := col.InsertOne(context.TODO(), *g)
+	if err != nil {
+		return primitive.ObjectID{}
 	}
 
+	return res.InsertedID.(primitive.ObjectID)
+}
+
+func (g *M{{ .ModelName }}) Delete() error {
+	col := dice.GetDB().Collection({{ .ModelName }}sCollection())
+	_, err := col.DeleteOne(context.TODO(), dice.Q{primitive.E{"_id", g.ID}})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func Find{{ .ModelName }}s(query dice.Q, g *[]M{{ .ModelName }}) error {
+	col := dice.GetDB().Collection({{ .ModelName }}sCollection())
+	cursor, err := col.Find(context.TODO(), query)
+	if err != nil {
+		return err
+	}
+
+	if err = cursor.All(context.TODO(), g); err != nil {
+		return err
+	}
+	return nil
+}
+
+func Delete{{ .ModelName }}s(query dice.Q) error {
+	col := dice.GetDB().Collection({{ .ModelName }}sCollection())
+	_, err := col.DeleteMany(context.TODO(), query)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func {{ .ModelName }}() *M{{ .ModelName }} {
+	var m M{{ .ModelName }}
+	return  &m
+}
+
+func {{ .ModelName }}s() *[]M{{ .ModelName }} {
 	var m []M{{ .ModelName }}
-	return  &m, dice.{{ .BaseStmt }}{}.Target(&m)
+	return  &m
 }
 `
 
+// TODO: make this a struct or an interface to serve for different dialect
 var initTemplatePq = `package models
 
 import (
 	"io/ioutil"
 
 	"github.com/rubikorg/dice"
-	"github.com/rubikorg/dice/postgres"
+	"github.com/rubikorg/dice/mgoconn"
 	"gopkg.in/yaml.v2"
 )
-
-func GetFilter() *dice.{{ .Filter }} {
-	return &dice.{{ .Filter }}{}
-}
 
 func Init() error {
 	var opts dice.Options
@@ -79,19 +124,40 @@ func Init() error {
 		return err
 	}
 
-	db, err := postgres.Connect(opts.Credentials)
+	db, err := mgoconn.Connect(opts.Credentials)
 	if err != nil {
 		return err
 	}
 
-	dice.Use(opts.Dialect, db, opts)
+	dice.Use(db, opts)
 	return nil
 }
 `
 
+func GenerateModel(name string) error {
+	// TODO: make this generic accross dialect
+	md := modelData{
+		BaseStmt:  orm.opts.Base,
+		Filter:    orm.opts.Filter,
+		Dialect:   orm.opts.Dialect,
+		ModelName: createStructName(name),
+		TableName: name,
+		PK:        "_id",
+		Columns:   "",
+	}
+
+	modelPath := path.Join(".", "models")
+	if err := desitinationChecks(name, modelPath); err != nil {
+		return err
+	}
+
+	writeModelTemplate(md, modelPath)
+	return nil
+}
+
 func writeModelTemplate(md modelData, dest string) {
 	// determine what FilterStmt impl and BaseStmt needs to be used
-	extractDataFromModelCache(&md)
+	// extractDataFromModelCache(&md)
 
 	var buf bytes.Buffer
 	fileName := fmt.Sprintf("%s.go", md.TableName)
@@ -143,28 +209,70 @@ func writeModelTemplate(md modelData, dest string) {
 	}
 }
 
-func cleanDestinationFolder(dest string) error {
-	dir, err := ioutil.ReadDir(dest)
-	for _, d := range dir {
-		os.RemoveAll(filepath.Join([]string{dest, d.Name()}...))
+func desitinationChecks(name, dest string) error {
+	if f, _ := os.Stat(dest); f == nil {
+		if err := os.MkdirAll(dest, 0755); err != nil {
+			return err
+		}
 	}
 
-	if err != nil {
-		return err
+	modelPath := filepath.Join(dest, name+".go")
+	if f, _ := os.Stat(modelPath); f != nil {
+		return fmt.Errorf("model: %s already exists", name)
 	}
+
 	return nil
 }
 
-func extractDataFromModelCache(md *modelData) {
-	switch md.Dialect {
-	// TODO: change this to proper driver connection later
-	case Postgres, MySQL, SQLite:
-		md.BaseStmt = "PqBase"
-		md.Filter = "SQLFilter"
-		md.initFileData = initTemplatePq
-	default:
-		md.BaseStmt = "PqBase"
-		md.Filter = "SQLFilter"
-		md.initFileData = initTemplatePq
+// TODO: remove this once confirmed we would not need this ever
+// func extractDataFromModelCache(md *modelData) {
+// 	switch md.Dialect {
+// 	// TODO: change this to proper driver connection later
+// 	case Postgres, MySQL, SQLite:
+// 		md.BaseStmt = "PqBase"
+// 		md.Filter = "SQLFilter"
+// 		md.initFileData = initTemplatePq
+// 	default:
+// 		md.BaseStmt = "PqBase"
+// 		md.Filter = "SQLFilter"
+// 		md.initFileData = initTemplatePq
+// 	}
+// }
+
+func createStructName(column string) string {
+	name := column
+	if !strings.Contains(name, "_") {
+		c0 := name[0]
+		if name[len(name)-1] == 's' {
+			name = column[:len(name)-1]
+		}
+		return strings.ToUpper(string(c0)) + name[1:]
 	}
+
+	fin := ""
+	foundUndie := false
+	for i := 0; i < len(column); i++ {
+		if i == 0 {
+			fin += strings.ToUpper(string(column[i]))
+			continue
+		}
+
+		if i == len(column)-1 && column[i] == 's' {
+			continue
+		}
+
+		if column[i] == '_' {
+			foundUndie = true
+			continue
+		}
+
+		if foundUndie {
+			fin += strings.ToUpper(string(column[i]))
+			foundUndie = false
+		} else {
+			fin += string(column[i])
+		}
+
+	}
+	return fin
 }
