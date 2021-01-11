@@ -49,6 +49,10 @@ func (g *M{{ .ModelName }}) FindOne(query dice.Q) {
 
 func (g *M{{ .ModelName }}) Save() primitive.ObjectID {
 	col := dice.GetDB().Collection({{ .ModelName }}sCollection())
+	if g.ID.IsZero() {
+		g.ID = primitive.NewObjectID()
+	}
+
 	res, err := col.InsertOne(context.TODO(), *g)
 	if err != nil {
 		return primitive.ObjectID{}

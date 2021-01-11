@@ -123,7 +123,7 @@ func PopulateAll(relation string, oids []primitive.ObjectID, target interface{})
 	// from relation map you can get the name of the struct
 	// field to populate
 	col := GetDB().Collection(relation)
-	cursor, err := col.Find(context.TODO(), Q{{"_id", bson.M{"$in": oids}}})
+	cursor, err := col.Aggregate(context.TODO(), Q{{"_id", bson.M{"$in": oids}}})
 	if err != nil {
 		return err
 	}
